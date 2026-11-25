@@ -1,0 +1,29 @@
+[package]
+name = "kittytooth-core"
+description = "KittyTooth core: heart rate parsing, processing, OSC output and engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[features]
+default = ["ble"]
+ble = ["dep:btleplug", "dep:futures"]
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+async-trait = { workspace = true }
+uuid = { workspace = true }
+rosc = "0.11"
+mdns-sd = "0.22"
+rand = "0.9"
+btleplug = { version = "0.13", optional = true }
+futures = { version = "0.3", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
