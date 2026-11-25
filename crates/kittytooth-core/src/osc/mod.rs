@@ -81,9 +81,24 @@ mod tests {
     #[test]
     fn address_normalization() {
         assert_eq!(normalize_address("HR").unwrap(), "/avatar/parameters/HR");
-        assert_eq!(normalize_address(" Foo/Bar ").unwrap(), "/avatar/parameters/Foo/Bar");
+        assert_eq!(
+            normalize_address(" Foo/Bar ").unwrap(),
+            "/avatar/parameters/Foo/Bar"
+        );
         assert_eq!(normalize_address("/custom/addr").unwrap(), "/custom/addr");
-        for bad in ["", "  ", "has space", "/a//b", "/a/", "a#b", "x*", "a,b", "q?", "[x]", "{y}"] {
+        for bad in [
+            "",
+            "  ",
+            "has space",
+            "/a//b",
+            "/a/",
+            "a#b",
+            "x*",
+            "a,b",
+            "q?",
+            "[x]",
+            "{y}",
+        ] {
             assert!(normalize_address(bad).is_err(), "{bad:?}");
         }
     }

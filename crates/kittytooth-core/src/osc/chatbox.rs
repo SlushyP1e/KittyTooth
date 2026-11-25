@@ -53,7 +53,11 @@ mod tests {
         assert_eq!(render("{hr} bpm {heart}", &m, true), "72 bpm \u{2764}\u{fe0f}");
         assert_eq!(render("{hr} bpm {heart}", &m, false), "72 bpm \u{1f497}");
         assert_eq!(
-            render("{min}/{avg}/{max} hrv {hrv} z{zone} {battery}% {unknown}", &m, true),
+            render(
+                "{min}/{avg}/{max} hrv {hrv} z{zone} {battery}% {unknown}",
+                &m,
+                true
+            ),
             "60/80/120 hrv 43 z1 90% {unknown}"
         );
     }

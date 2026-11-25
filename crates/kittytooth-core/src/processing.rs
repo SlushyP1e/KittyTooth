@@ -293,10 +293,7 @@ impl ZoneConfig {
     /// Zone 0 (below zone 1) to 5.
     pub fn zone(&self, bpm: u16) -> u8 {
         let pct = bpm as f64 * 100.0 / self.max_hr() as f64;
-        self.thresholds
-            .iter()
-            .filter(|&&t| pct >= t as f64)
-            .count() as u8
+        self.thresholds.iter().filter(|&&t| pct >= t as f64).count() as u8
     }
 
     /// Sorts and clamps thresholds into a valid ascending set.
@@ -464,9 +461,18 @@ mod tests {
     fn rejects_out_of_range() {
         let mut p = Processor::new(Smoothing::Off);
         let n = t0();
-        assert_eq!(p.push_bpm(24, true, n), SampleOutcome::Rejected(RejectReason::OutOfRange));
-        assert_eq!(p.push_bpm(251, true, n), SampleOutcome::Rejected(RejectReason::OutOfRange));
-        assert_eq!(p.push_bpm(0, true, n), SampleOutcome::Rejected(RejectReason::OutOfRange));
+        assert_eq!(
+            p.push_bpm(24, true, n),
+            SampleOutcome::Rejected(RejectReason::OutOfRange)
+        );
+        assert_eq!(
+            p.push_bpm(251, true, n),
+            SampleOutcome::Rejected(RejectReason::OutOfRange)
+        );
+        assert_eq!(
+            p.push_bpm(0, true, n),
+            SampleOutcome::Rejected(RejectReason::OutOfRange)
+        );
         assert!(matches!(p.push_bpm(25, true, n), SampleOutcome::Accepted { .. }));
         let mut p = Processor::new(Smoothing::Off);
         assert!(matches!(p.push_bpm(250, true, n), SampleOutcome::Accepted { .. }));
@@ -476,7 +482,10 @@ mod tests {
     #[test]
     fn rejects_no_contact() {
         let mut p = Processor::new(Smoothing::Off);
-        assert_eq!(p.push_bpm(70, false, t0()), SampleOutcome::Rejected(RejectReason::NoContact));
+        assert_eq!(
+            p.push_bpm(70, false, t0()),
+            SampleOutcome::Rejected(RejectReason::NoContact)
+        );
     }
 
     #[test]
@@ -616,7 +625,10 @@ mod tests {
         }
         // 10 s gap, then a different but steady rhythm (within 25 %).
         for i in 0..5 {
-            r.push(900.0, s + Duration::from_secs(14) + Duration::from_millis(900 * i));
+            r.push(
+                900.0,
+                s + Duration::from_secs(14) + Duration::from_millis(900 * i),
+            );
         }
         assert_eq!(r.value(s + Duration::from_secs(19)), Some(0.0));
     }

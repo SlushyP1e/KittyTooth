@@ -33,14 +33,18 @@ pub async fn read_request<S: AsyncRead + Unpin>(s: &mut S) -> std::io::Result<Re
                 return Ok(());
             }
             if buf.len() > MAX_HEADER {
-                return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "header too large"));
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "header too large",
+                ));
             }
         }
     };
     tokio::time::timeout(Duration::from_secs(5), read)
         .await
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"))??;
-    parse_request_line(&buf).ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "bad request line"))
+    parse_request_line(&buf)
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "bad request line"))
 }
 
 pub fn parse_request_line(buf: &[u8]) -> Option<Request> {
@@ -165,7 +169,8 @@ mod tests {
         let (s, b) = parse_response(&r).unwrap();
         assert_eq!(s, 200);
         assert_eq!(b, b"hi");
-        let chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n";
+        let chunked =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n";
         assert_eq!(parse_response(chunked).unwrap().1, b"Wikipedia");
         let no_len = b"HTTP/1.0 404 Not Found\r\n\r\nnope";
         assert_eq!(parse_response(no_len).unwrap(), (404, b"nope".to_vec()));

@@ -132,7 +132,12 @@ fn hrtovrchat(m: &Metrics, norm: f64) -> Vec<ParamMsg> {
     let pre = AVATAR_PREFIX;
     let (ones, tens, hundreds) = split_digits(m.hr);
     vec![
-        p(pre, "isHRConnected", OscValue::Bool(m.connected), Role::Connection),
+        p(
+            pre,
+            "isHRConnected",
+            OscValue::Bool(m.connected),
+            Role::Connection,
+        ),
         p(pre, "isHRActive", OscValue::Bool(m.connected), Role::Connection),
         // Upstream clamps HR to 0..255.
         p(pre, "HR", int(m.hr.min(255)), Role::Value),
@@ -424,8 +429,14 @@ mod tests {
         assert_eq!(z.hr, 0);
         assert_eq!(z.max_hr, 190);
         let v = messages(&target(Preset::KittyTooth), &z);
-        assert_eq!(get(&v, "/avatar/parameters/KittyTooth/HR").value, OscValue::Int(0));
-        assert_eq!(get(&v, "/avatar/parameters/KittyTooth/Normalized").value, OscValue::Float(0.0));
+        assert_eq!(
+            get(&v, "/avatar/parameters/KittyTooth/HR").value,
+            OscValue::Int(0)
+        );
+        assert_eq!(
+            get(&v, "/avatar/parameters/KittyTooth/Normalized").value,
+            OscValue::Float(0.0)
+        );
     }
 
     #[test]

@@ -129,7 +129,11 @@ async fn serve_http(listener: TcpListener, name: String, osc_port: u16) {
             let resp = if req.method != "GET" {
                 http::response(405, "text/plain", b"method not allowed")
             } else if req.query.as_deref() == Some("HOST_INFO") {
-                http::response(200, "application/json", host_info(&name, osc_port).to_string().as_bytes())
+                http::response(
+                    200,
+                    "application/json",
+                    host_info(&name, osc_port).to_string().as_bytes(),
+                )
             } else {
                 match find_node(&tree, &req.path) {
                     Some(n) => http::response(200, "application/json", n.to_string().as_bytes()),
@@ -216,7 +220,10 @@ pub async fn start(mdns: bool, events: mpsc::Sender<OscQueryEvent>) -> KtResult<
     let udp = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0))
         .await
         .map_err(|e| KtError::OscSocket(e.to_string()))?;
-    let osc_port = udp.local_addr().map_err(|e| KtError::OscSocket(e.to_string()))?.port();
+    let osc_port = udp
+        .local_addr()
+        .map_err(|e| KtError::OscSocket(e.to_string()))?
+        .port();
     let tcp = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await?;
     let http_port = tcp.local_addr()?.port();
     let suffix: String = uuid::Uuid::new_v4().simple().to_string()[..4].to_uppercase();
@@ -257,8 +264,15 @@ fn start_mdns(name: &str, http_port: u16, osc_port: u16) -> Result<MdnsStart, St
     let daemon = mdns_sd::ServiceDaemon::new().map_err(|e| e.to_string())?;
     let host = format!("{}.local.", name.to_lowercase());
     for (ty, port) in [(OSCJSON_SERVICE, http_port), (OSC_SERVICE, osc_port)] {
-        let info = mdns_sd::ServiceInfo::new(ty, name, &host, "127.0.0.1", port, None::<std::collections::HashMap<String, String>>)
-            .map_err(|e| e.to_string())?;
+        let info = mdns_sd::ServiceInfo::new(
+            ty,
+            name,
+            &host,
+            "127.0.0.1",
+            port,
+            None::<std::collections::HashMap<String, String>>,
+        )
+        .map_err(|e| e.to_string())?;
         daemon.register(info).map_err(|e| e.to_string())?;
     }
     let receiver = daemon.browse(OSCJSON_SERVICE).map_err(|e| e.to_string())?;
@@ -271,13 +285,20 @@ mod tests {
 
     #[test]
     fn host_info_parsing() {
-        let body = br#"{"NAME":"VRChat-Client-ABC123","OSC_IP":"127.0.0.1","OSC_PORT":9010,"OSC_TRANSPORT":"UDP"}"#;
+        let body =
+            br#"{"NAME":"VRChat-Client-ABC123","OSC_IP":"127.0.0.1","OSC_PORT":9010,"OSC_TRANSPORT":"UDP"}"#;
         assert_eq!(parse_host_info(body), Some(("127.0.0.1".parse().unwrap(), 9010)));
-        assert_eq!(parse_host_info(br#"{"OSC_PORT":9000}"#), Some(("127.0.0.1".parse().unwrap(), 9000)));
+        assert_eq!(
+            parse_host_info(br#"{"OSC_PORT":9000}"#),
+            Some(("127.0.0.1".parse().unwrap(), 9000))
+        );
         assert_eq!(parse_host_info(br#"{"NAME":"x"}"#), None);
         assert_eq!(parse_host_info(b"nope"), None);
         let ours = host_info("KittyTooth-TEST", 1234).to_string();
-        assert_eq!(parse_host_info(ours.as_bytes()), Some(("127.0.0.1".parse().unwrap(), 1234)));
+        assert_eq!(
+            parse_host_info(ours.as_bytes()),
+            Some(("127.0.0.1".parse().unwrap(), 1234))
+        );
     }
 
     #[test]
@@ -293,11 +314,15 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(8);
         let h = start(false, tx).await.unwrap();
         let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, h.http_port));
-        let (s, body) = http::get(addr, "/?HOST_INFO", Duration::from_secs(2)).await.unwrap();
+        let (s, body) = http::get(addr, "/?HOST_INFO", Duration::from_secs(2))
+            .await
+            .unwrap();
         assert_eq!(s, 200);
         let (_, port) = parse_host_info(&body).unwrap();
         assert_eq!(port, h.osc_port);
-        let (s, body) = http::get(addr, "/avatar/change", Duration::from_secs(2)).await.unwrap();
+        let (s, body) = http::get(addr, "/avatar/change", Duration::from_secs(2))
+            .await
+            .unwrap();
         assert_eq!(s, 200);
         assert!(String::from_utf8_lossy(&body).contains("/avatar/change"));
         let (s, _) = http::get(addr, "/missing", Duration::from_secs(2)).await.unwrap();
@@ -305,9 +330,12 @@ mod tests {
 
         // VRChat sends /avatar/change to our OSC port.
         let sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
-        let pkt = crate::osc::encode_message("/avatar/change", vec![rosc::OscType::String("avtr_x".into())]).unwrap();
+        let pkt = crate::osc::encode_message("/avatar/change", vec![rosc::OscType::String("avtr_x".into())])
+            .unwrap();
         sock.send_to(&pkt, ("127.0.0.1", h.osc_port)).await.unwrap();
-        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv()).await.unwrap();
+        let ev = tokio::time::timeout(Duration::from_secs(2), rx.recv())
+            .await
+            .unwrap();
         assert_eq!(ev, Some(OscQueryEvent::AvatarChanged));
     }
 
@@ -320,9 +348,13 @@ mod tests {
             let (mut s, _) = l.accept().await.unwrap();
             let _ = http::read_request(&mut s).await;
             let body = br#"{"NAME":"VRChat-Client-F00D","OSC_IP":"127.0.0.1","OSC_PORT":9555}"#;
-            s.write_all(&http::response(200, "application/json", body)).await.unwrap();
+            s.write_all(&http::response(200, "application/json", body))
+                .await
+                .unwrap();
         });
-        let ep = resolve_vrchat("VRChat-Client-F00D._oscjson._tcp.local.", &[], port).await.unwrap();
+        let ep = resolve_vrchat("VRChat-Client-F00D._oscjson._tcp.local.", &[], port)
+            .await
+            .unwrap();
         assert_eq!(ep.port, 9555);
         assert!(ep.local);
     }

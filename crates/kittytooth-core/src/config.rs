@@ -410,9 +410,9 @@ fn migrate_v1_to_v2(v: Value) -> Value {
         Some("vrcosc") => "vrcosc",
         _ => "kitty_tooth",
     };
-    let last_device = s("last_device").map(|id| {
-        json!({ "id": id, "name": s("last_device_name").unwrap_or_else(|| "Heart rate sensor".into()) })
-    });
+    let last_device = s("last_device").map(
+        |id| json!({ "id": id, "name": s("last_device_name").unwrap_or_else(|| "Heart rate sensor".into()) }),
+    );
     json!({
         "schema_version": 2,
         "device": {
@@ -612,7 +612,8 @@ mod tests {
 
     #[test]
     fn newer_version_loads_known_fields() {
-        let (c, from) = ConfigStore::parse(r#"{"schema_version":99,"device":{"stale_timeout_secs":9}}"#).unwrap();
+        let (c, from) =
+            ConfigStore::parse(r#"{"schema_version":99,"device":{"stale_timeout_secs":9}}"#).unwrap();
         assert_eq!(from, 99);
         assert_eq!(c.device.stale_timeout_secs, 9);
         assert_eq!(c.schema_version, CURRENT_SCHEMA_VERSION);

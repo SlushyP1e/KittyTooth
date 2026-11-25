@@ -155,7 +155,8 @@ impl TargetSender {
         for m in msgs {
             let last = self.last.get(&m.address);
             let changed = last.is_none_or(|(v, _)| *v != m.value);
-            let stale = keepalive.is_some_and(|k| last.is_none_or(|(_, t)| now.saturating_duration_since(*t) >= k));
+            let stale =
+                keepalive.is_some_and(|k| last.is_none_or(|(_, t)| now.saturating_duration_since(*t) >= k));
             if !(changed || stale || force) {
                 continue;
             }
@@ -241,7 +242,14 @@ impl TargetSender {
 
     /// Chatbox: sends `text` if `interval` passed since the last send and the text changed
     /// (or 20 s passed, to keep it visible). Respects the shared rate limit.
-    pub fn chatbox(&mut self, text: &str, silent: bool, interval: Duration, now: Instant, test: bool) -> Option<Outgoing> {
+    pub fn chatbox(
+        &mut self,
+        text: &str,
+        silent: bool,
+        interval: Duration,
+        now: Instant,
+        test: bool,
+    ) -> Option<Outgoing> {
         let dest = self.dest?;
         if let Some((t, last)) = &self.chatbox_last {
             let elapsed = now.saturating_duration_since(*t);
@@ -347,7 +355,11 @@ mod tests {
     }
 
     fn sender(rate: u32) -> TargetSender {
-        TargetSender::new(OscTarget::default(), Some("127.0.0.1:9000".parse().unwrap()), rate)
+        TargetSender::new(
+            OscTarget::default(),
+            Some("127.0.0.1:9000".parse().unwrap()),
+            rate,
+        )
     }
 
     #[test]
@@ -388,12 +400,18 @@ mod tests {
     fn only_changes_are_sent() {
         let mut s = sender(20);
         let t = Instant::now();
-        let v = vec![msg("/a", OscValue::Int(1), Role::Value), msg("/b", OscValue::Int(2), Role::Value)];
+        let v = vec![
+            msg("/a", OscValue::Int(1), Role::Value),
+            msg("/b", OscValue::Int(2), Role::Value),
+        ];
         s.offer(&v, t, None, false);
         assert_eq!(s.drain(t, false).len(), 2);
         s.offer(&v, t + Duration::from_millis(100), None, false);
         assert_eq!(s.drain(t, false).len(), 0);
-        let v2 = vec![msg("/a", OscValue::Int(5), Role::Value), msg("/b", OscValue::Int(2), Role::Value)];
+        let v2 = vec![
+            msg("/a", OscValue::Int(5), Role::Value),
+            msg("/b", OscValue::Int(2), Role::Value),
+        ];
         s.offer(&v2, t + Duration::from_millis(200), None, false);
         let out = s.drain(t + Duration::from_millis(200), false);
         assert_eq!(out.len(), 1);
@@ -477,8 +495,12 @@ mod tests {
         let t = Instant::now();
         let iv = Duration::from_secs(2);
         assert!(s.chatbox("70 bpm", true, iv, t, false).is_some());
-        assert!(s.chatbox("71 bpm", true, iv, t + Duration::from_millis(1999), false).is_none());
-        let o = s.chatbox("71 bpm", true, iv, t + Duration::from_secs(2), false).unwrap();
+        assert!(s
+            .chatbox("71 bpm", true, iv, t + Duration::from_millis(1999), false)
+            .is_none());
+        let o = s
+            .chatbox("71 bpm", true, iv, t + Duration::from_secs(2), false)
+            .unwrap();
         let (_, pkt) = rosc::decoder::decode_udp(&o.bytes).unwrap();
         match pkt {
             rosc::OscPacket::Message(m) => {
@@ -495,16 +517,24 @@ mod tests {
             _ => panic!(),
         }
         // unchanged text is not resent until 20 s pass
-        assert!(s.chatbox("71 bpm", true, iv, t + Duration::from_secs(10), false).is_none());
-        assert!(s.chatbox("71 bpm", true, iv, t + Duration::from_secs(23), false).is_some());
+        assert!(s
+            .chatbox("71 bpm", true, iv, t + Duration::from_secs(10), false)
+            .is_none());
+        assert!(s
+            .chatbox("71 bpm", true, iv, t + Duration::from_secs(23), false)
+            .is_some());
     }
 
     #[test]
     fn chatbox_with_sound() {
         let mut s = sender(20);
-        let o = s.chatbox("hi", false, Duration::from_secs(2), Instant::now(), false).unwrap();
+        let o = s
+            .chatbox("hi", false, Duration::from_secs(2), Instant::now(), false)
+            .unwrap();
         let (_, pkt) = rosc::decoder::decode_udp(&o.bytes).unwrap();
-        let rosc::OscPacket::Message(m) = pkt else { panic!() };
+        let rosc::OscPacket::Message(m) = pkt else {
+            panic!()
+        };
         assert_eq!(m.args[2], rosc::OscType::Bool(true));
     }
 
