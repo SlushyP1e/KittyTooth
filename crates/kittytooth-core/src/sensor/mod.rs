@@ -1,5 +1,6 @@
-//! Sensor abstraction. The engine only talks to [`HeartRateBackend`]; implementations are the
-//! btleplug BLE backend (feature `ble`), the mock/demo backend, and a composite of both.
+//! Bluetooth sensor abstraction. [`HeartRateBackend`] scans and connects BLE sensors; the
+//! btleplug backend (feature `ble`), the mock/demo backend and a composite of both implement it.
+//! The engine reaches them through [`crate::source::BleSource`].
 
 #[cfg(feature = "ble")]
 pub mod ble;
@@ -7,7 +8,6 @@ pub mod mock;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -73,14 +73,13 @@ impl AdapterState {
     }
 }
 
-/// Events a connected sensor sends to the engine.
+/// Events a connected source sends to the engine. Every source emits the same
+/// [`HrSample`](crate::source::HrSample).
 #[derive(Debug, Clone, PartialEq)]
 pub enum SensorEvent {
-    /// Raw `0x2A37` payload and the instant it arrived (for latency measurement).
-    Measurement {
-        data: Vec<u8>,
-        received: Instant,
-    },
+    Sample(crate::source::HrSample),
+    /// A packet arrived but couldn't be decoded (keeps the link alive, carries no reading).
+    Unreadable(String),
     Battery(u8),
     /// The link dropped. `None` means a clean disconnect.
     Disconnected(Option<KtError>),

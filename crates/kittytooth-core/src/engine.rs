@@ -10,20 +10,23 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
-use tokio::net::UdpSocket;
+use std::net::UdpSocket;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
 use crate::beat::{BeatScheduler, BeatSource};
 use crate::config::{Config, ConfigStore, DisconnectBehavior, RememberedDevice};
 use crate::error::{KtError, KtResult, UserError};
-use crate::hrm::{self, SensorContact};
+use crate::hrm::SensorContact;
 use crate::osc::chatbox;
 use crate::osc::oscquery::{self, OscQueryEvent, OscQueryHandle, VrchatEndpoint};
 use crate::osc::presets::{self, Metrics, Role};
 use crate::osc::sender::{epoch_ms, OscLog, OscLogEntry, Outgoing, TargetSender, TargetStats};
-use crate::processing::{Processor, SampleOutcome, SessionStats};
+use crate::processing::{Processor, SampleOutcome, SessionStats, MAX_VALID_BPM, MIN_VALID_BPM};
 use crate::sensor::{
     AdapterState, DeviceInfo, DiscoveredDevice, HeartRateBackend, SensorEvent, SensorSession,
+};
+use crate::source::{
+    Capabilities, DefaultFactory, HeartRateSource, HrSample, MemorySecrets, SourceFactory, SourceKind,
 };
 
 /// Reconnect delay for the n-th consecutive failure (n >= 1): 1, 2, 4, 8, 10, 10, ... s.
@@ -37,6 +40,12 @@ const PULSE: Duration = Duration::from_millis(100);
 const SWEEP_LEN: Duration = Duration::from_secs(16);
 const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(45);
 const HISTORY_CAP: usize = 6 * 60 * 60 * 4; // 6 h at 4 samples/s
+/// The main source must deliver this long before the engine switches back from the backup.
+pub const FALLBACK_RECOVER: Duration = Duration::from_secs(3);
+/// Rate-limited services are retried no sooner than this.
+const RATE_LIMIT_BACKOFF: Duration = Duration::from_secs(30);
+const PRIMARY: usize = 0;
+const BACKUP: usize = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -116,6 +125,37 @@ pub struct Snapshot {
     pub rejected_spikes: u64,
     pub rejected_out_of_range: u64,
     pub packets: u64,
+    /// The chosen main source.
+    pub source: SourceKind,
+    /// The source feeding readings right now (`None` while there is no valid data).
+    pub live_source: Option<SourceKind>,
+    /// The backup source is standing in for a stale main source.
+    pub fallback_active: bool,
+    /// What the live (or main) source can report; missing items show as "not available".
+    pub capabilities: Capabilities,
+    /// Main and backup source connections.
+    pub sources: Vec<SlotStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SlotRole {
+    #[default]
+    Primary,
+    Backup,
+}
+
+/// Connection status of the main or backup source.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+pub struct SlotStatus {
+    pub role: SlotRole,
+    pub kind: SourceKind,
+    pub label: Option<String>,
+    pub state: ConnState,
+    pub error: Option<UserError>,
+    pub last_packet_ms: Option<u64>,
+    /// This source is the one feeding readings right now.
+    pub live: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -147,6 +187,10 @@ pub enum Command {
     Connect(RememberedDevice),
     Disconnect,
     Forget,
+    /// Makes a source kind the main source and starts it.
+    SelectSource(SourceKind),
+    /// Reconnects running sources (after a token or key changed).
+    RestartSources,
     TestSweep(bool),
     ResetSession,
     Shutdown(oneshot::Sender<()>),
@@ -163,11 +207,17 @@ pub struct Shared {
 pub struct EngineOptions {
     /// Allow OSCQuery mDNS (tests disable it).
     pub mdns: bool,
+    /// Network sources may send only when the value changes, so their link is declared dead
+    /// after `max(stale timeout, this)` of silence rather than the plain stale timeout.
+    pub network_link_floor: Duration,
 }
 
 impl Default for EngineOptions {
     fn default() -> Self {
-        Self { mdns: true }
+        Self {
+            mdns: true,
+            network_link_floor: Duration::from_secs(20),
+        }
     }
 }
 
@@ -215,6 +265,14 @@ impl EngineHandle {
 
     pub async fn forget(&self) -> KtResult<()> {
         self.send(Command::Forget).await
+    }
+
+    pub async fn select_source(&self, kind: SourceKind) -> KtResult<()> {
+        self.send(Command::SelectSource(kind)).await
+    }
+
+    pub async fn restart_sources(&self) -> KtResult<()> {
+        self.send(Command::RestartSources).await
     }
 
     pub async fn test_sweep(&self, on: bool) -> KtResult<()> {
@@ -278,13 +336,25 @@ impl EngineHandle {
     }
 }
 
-/// Starts the engine on the current tokio runtime.
+/// Starts the engine with the default source factory and in-memory secrets.
 pub fn start(
     config: Config,
     store: Option<ConfigStore>,
     backend: Arc<dyn HeartRateBackend>,
     opts: EngineOptions,
 ) -> EngineHandle {
+    let factory = Arc::new(DefaultFactory::new(backend, Arc::new(MemorySecrets::default())));
+    start_with_factory(config, store, factory, opts)
+}
+
+/// Starts the engine on the current tokio runtime.
+pub fn start_with_factory(
+    config: Config,
+    store: Option<ConfigStore>,
+    factory: Arc<dyn SourceFactory>,
+    opts: EngineOptions,
+) -> EngineHandle {
+    let backend = factory.backend();
     let config = config.sanitized();
     let (cmd_tx, cmd_rx) = mpsc::channel(64);
     let (snap_tx, snap_rx) = watch::channel(Snapshot::default());
@@ -302,13 +372,49 @@ pub fn start(
     };
     backend.set_demo_enabled(config.device.demo_device);
     let engine = Engine::new(
-        config, store, backend, opts, snap_tx, dev_tx, cfg_tx, ev_tx, shared,
+        config, store, factory, backend, opts, snap_tx, dev_tx, cfg_tx, ev_tx, shared,
     );
     tokio::spawn(engine.run(cmd_rx));
     handle
 }
 
-type AttemptResult = (u64, KtResult<Box<dyn SensorSession>>, mpsc::Receiver<SensorEvent>);
+type AttemptResult = (
+    usize,
+    u64,
+    KtResult<Box<dyn SensorSession>>,
+    mpsc::Receiver<SensorEvent>,
+);
+
+/// One source connection (main or backup) with its own reconnect loop.
+#[derive(Default)]
+struct Slot {
+    kind: Option<SourceKind>,
+    source: Option<Arc<dyn HeartRateSource>>,
+    session: Option<Box<dyn SensorSession>>,
+    gen: u64,
+    inflight: bool,
+    attempts: u32,
+    next_at: Option<Instant>,
+    retry_at_ms: Option<u64>,
+    /// Stopped retrying (rejected credentials, missing setup) until the user changes something.
+    halted: bool,
+    started: Option<Instant>,
+    last_packet: Option<Instant>,
+    last_packet_ms: Option<u64>,
+    last_valid: Option<Instant>,
+    valid_since: Option<Instant>,
+    state: ConnState,
+    error: Option<UserError>,
+    device: Option<DeviceInfo>,
+    battery: Option<u8>,
+}
+
+impl Slot {
+    fn fresh(&self, now: Instant, within: Duration) -> bool {
+        self.last_valid
+            .is_some_and(|t| now.saturating_duration_since(t) <= within)
+    }
+}
 
 struct Sweep {
     started: Instant,
@@ -317,6 +423,7 @@ struct Sweep {
 struct Engine {
     config: Config,
     store: Option<ConfigStore>,
+    factory: Arc<dyn SourceFactory>,
     backend: Arc<dyn HeartRateBackend>,
     opts: EngineOptions,
     snap_tx: watch::Sender<Snapshot>,
@@ -328,17 +435,18 @@ struct Engine {
     snap: Snapshot,
     dirty: bool,
 
-    // connection
-    desired: Option<RememberedDevice>,
-    session: Option<Box<dyn SensorSession>>,
-    session_rx: Option<mpsc::Receiver<SensorEvent>>,
-    attempt_gen: u64,
-    attempt_inflight: bool,
-    attempt_count: u32,
-    next_attempt_at: Option<Instant>,
+    // sources
+    /// The user wants sources running (auto-connect, or Connect/Select pressed).
+    running: bool,
+    slots: [Slot; 2],
+    /// Event receivers of the slots' sessions (separate fields so `select!` can poll both).
+    primary_rx: Option<mpsc::Receiver<SensorEvent>>,
+    backup_rx: Option<mpsc::Receiver<SensorEvent>>,
+    /// Index of the slot feeding readings.
+    live: usize,
+    engine_error: Option<UserError>,
     attempt_tx: mpsc::Sender<AttemptResult>,
     attempt_rx: mpsc::Receiver<AttemptResult>,
-    last_packet: Option<Instant>,
 
     // scanning
     scan_tx: mpsc::Sender<DiscoveredDevice>,
@@ -389,6 +497,7 @@ impl Engine {
     fn new(
         config: Config,
         store: Option<ConfigStore>,
+        factory: Arc<dyn SourceFactory>,
         backend: Arc<dyn HeartRateBackend>,
         opts: EngineOptions,
         snap_tx: watch::Sender<Snapshot>,
@@ -402,15 +511,12 @@ impl Engine {
         let (adapter_tx, adapter_rx) = mpsc::channel(4);
         let (resolve_tx, resolve_rx) = mpsc::channel(16);
         let (oscq_tx, oscq_rx) = mpsc::channel(16);
-        let desired = if config.device.auto_connect {
-            config.device.last_device.clone()
-        } else {
-            None
-        };
+        let running = config.device.auto_connect;
         let processor = Processor::new(config.processing.smoothing);
         Self {
             config,
             store,
+            factory,
             backend,
             opts,
             snap_tx,
@@ -420,16 +526,14 @@ impl Engine {
             shared,
             snap: Snapshot::default(),
             dirty: true,
-            desired,
-            session: None,
-            session_rx: None,
-            attempt_gen: 0,
-            attempt_inflight: false,
-            attempt_count: 0,
-            next_attempt_at: Some(Instant::now()),
+            running,
+            slots: Default::default(),
+            primary_rx: None,
+            backup_rx: None,
+            live: PRIMARY,
+            engine_error: None,
             attempt_tx,
             attempt_rx,
-            last_packet: None,
             scan_tx,
             scan_rx,
             devices: HashMap::new(),
@@ -462,14 +566,16 @@ impl Engine {
     }
 
     async fn run(mut self, mut cmd_rx: mpsc::Receiver<Command>) {
-        self.socket_v4 = UdpSocket::bind((Ipv4Addr::UNSPECIFIED, 0)).await.ok();
+        // Plain non-blocking std sockets: UDP sends complete synchronously on the hot path
+        // (tokio's `try_send_to` can report WouldBlock before readiness is first observed).
+        self.socket_v4 = nonblocking_udp((Ipv4Addr::UNSPECIFIED, 0).into());
         if self.socket_v4.is_none() {
-            self.snap.error = Some(KtError::OscSocket("could not open a UDP socket".into()).user());
+            self.engine_error = Some(KtError::OscSocket("could not open a UDP socket".into()).user());
         }
         self.snap.max_hr = self.config.zones.max_hr();
-        self.snap.target = self.desired.clone();
         self.apply_oscquery().await;
         self.rebuild_senders();
+        self.reconcile(false, false).await;
         let mut tick = tokio::time::interval(TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
@@ -488,7 +594,8 @@ impl Engine {
                         None => { self.shutdown().await; return; }
                     }
                 }
-                ev = recv_opt(&mut self.session_rx) => self.on_sensor_event(ev).await,
+                ev = recv_opt(&mut self.primary_rx) => self.on_sensor_event(PRIMARY, ev).await,
+                ev = recv_opt(&mut self.backup_rx) => self.on_sensor_event(BACKUP, ev).await,
                 Some(res) = self.attempt_rx.recv() => self.on_attempt(res).await,
                 Some(d) = self.scan_rx.recv() => self.on_discovered(d),
                 Some(s) = self.adapter_rx.recv() => self.on_adapter(s),
@@ -543,8 +650,10 @@ impl Engine {
             self.dirty = true;
             if !valid {
                 self.beat.reset();
-                if self.session.is_some() {
-                    self.set_state(ConnState::NoData);
+                let live = &mut self.slots[self.live];
+                live.valid_since = None;
+                if live.session.is_some() {
+                    live.state = ConnState::NoData;
                 }
             }
         }
@@ -591,33 +700,51 @@ impl Engine {
             }
         }
 
-        // Stale detection: no packets at all → link is dead; reconnect.
-        if self.session.is_some() {
-            if let Some(t) = self.last_packet {
-                if now.saturating_duration_since(t) > self.stale_timeout() {
+        for i in [PRIMARY, BACKUP] {
+            // Stale detection: no packets at all → link is dead; reconnect.
+            let link_timeout = self.link_timeout(self.slots[i].kind);
+            let slot = &self.slots[i];
+            if let (Some(_), Some(t), Some(limit)) = (&slot.session, slot.last_packet, link_timeout) {
+                if now.saturating_duration_since(t) > limit {
                     tracing::warn!(
-                        timeout_s = self.config.device.stale_timeout_secs,
-                        "sensor data stale; reconnecting"
+                        slot = i,
+                        timeout_s = limit.as_secs(),
+                        "source data stale; reconnecting"
                     );
-                    self.on_link_lost(None, now);
+                    self.on_link_lost(i, None, now);
                 }
+            }
+            // A standby source with a link but no recent reading.
+            if i != self.live {
+                let stale = self.stale_timeout();
+                let slot = &mut self.slots[i];
+                if slot.session.is_some() && slot.state == ConnState::Connected && !slot.fresh(now, stale) {
+                    slot.state = ConnState::NoData;
+                    slot.valid_since = None;
+                }
+            }
+            // Reconnect scheduling.
+            let slot = &self.slots[i];
+            if slot.source.is_some()
+                && slot.session.is_none()
+                && !slot.inflight
+                && !slot.halted
+                && slot.next_at.is_some_and(|at| now >= at)
+            {
+                self.spawn_attempt(i);
             }
         }
 
         // Data validity (e.g. sustained contact loss) → OSC disconnected frame.
         self.update_validity(now);
+        self.evaluate_live(now);
 
-        // Reconnect scheduling.
-        if self.desired.is_some() && self.session.is_none() && !self.attempt_inflight {
-            if let Some(at) = self.next_attempt_at {
-                if now >= at {
-                    self.spawn_attempt();
-                }
-            }
-        }
-
-        // Adapter polling every 3 s while not connected (cheap, async, off-loop).
-        if self.session.is_none()
+        // Adapter polling every 3 s while no Bluetooth link is up (cheap, async, off-loop).
+        let ble_connected = self
+            .slots
+            .iter()
+            .any(|s| s.session.is_some() && matches!(s.kind, Some(SourceKind::Ble | SourceKind::Demo)));
+        if !ble_connected
             && self
                 .last_adapter_poll
                 .is_none_or(|t| now.saturating_duration_since(t) >= Duration::from_secs(3))
@@ -695,38 +822,39 @@ impl Engine {
             }
             Command::Connect(dev) => {
                 tracing::info!(id = %dev.id, name = %dev.name, "connect requested");
-                self.teardown_session().await;
-                self.desired = Some(dev.clone());
-                self.attempt_count = 0;
-                self.next_attempt_at = Some(Instant::now());
-                self.snap.error = None;
-                self.snap.target = Some(dev.clone());
-                if self.config.device.last_device.as_ref() != Some(&dev) {
-                    self.config.device.last_device = Some(dev);
+                let kind = SourceKind::of_device(&dev.id);
+                let changed = self.config.device.last_device.as_ref() != Some(&dev)
+                    || self.config.source.active != kind;
+                self.config.device.last_device = Some(dev);
+                self.config.source.active = kind;
+                if changed {
                     self.persist_config();
                 }
-                self.set_state(ConnState::Connecting);
-                self.spawn_attempt();
+                self.running = true;
+                self.reconcile(true, false).await;
+            }
+            Command::SelectSource(kind) => {
+                tracing::info!(source = kind.tag(), "source selected");
+                if self.config.source.active != kind {
+                    self.config.source.active = kind;
+                    self.persist_config();
+                }
+                self.running = true;
+                self.reconcile(true, false).await;
+            }
+            Command::RestartSources => {
+                if self.running {
+                    self.reconcile(true, true).await;
+                }
             }
             Command::Disconnect => {
                 tracing::info!("disconnect requested");
-                self.desired = None;
-                self.teardown_session().await;
-                self.mark_invalid(Instant::now());
-                self.snap.target = None;
-                self.snap.error = None;
-                self.snap.retry_at_ms = None;
-                self.snap.attempt = 0;
-                self.set_state(ConnState::Idle);
+                self.running = false;
+                self.reconcile(false, false).await;
             }
             Command::Forget => {
-                self.desired = None;
-                self.teardown_session().await;
-                self.mark_invalid(Instant::now());
-                self.snap.target = None;
-                self.snap.error = None;
-                self.snap.retry_at_ms = None;
-                self.set_state(ConnState::Idle);
+                self.running = false;
+                self.reconcile(false, false).await;
                 if self.config.device.last_device.take().is_some() {
                     self.persist_config();
                 }
@@ -788,10 +916,7 @@ impl Engine {
             }
         }
         // The remembered device is owned by the engine.
-        if cfg.device.last_device.is_none()
-            && self.config.device.last_device.is_some()
-            && self.desired.is_some()
-        {
+        if cfg.device.last_device.is_none() && self.config.device.last_device.is_some() && self.running {
             cfg.device.last_device = self.config.device.last_device.clone();
         }
         let old = std::mem::replace(&mut self.config, cfg);
@@ -817,6 +942,20 @@ impl Engine {
                 .err()
                 .map(|e| e.user());
         }
+        if old.source != self.config.source
+            || old.device.stale_timeout_secs != self.config.device.stale_timeout_secs
+        {
+            let changed = |k: SourceKind| match k {
+                SourceKind::Hyperate => old.source.hyperate != self.config.source.hyperate,
+                SourceKind::Osc => old.source.osc_input != self.config.source.osc_input,
+                _ => false,
+            };
+            let (p, b) = (
+                changed(self.config.source.active),
+                changed(self.config.source.fallback.backup),
+            );
+            self.reconcile(p, b).await;
+        }
         self.snap.max_hr = self.config.zones.max_hr();
         self.dirty = true;
         let r = match &self.store {
@@ -837,110 +976,270 @@ impl Engine {
         let _ = self.ev_tx.send(EngineEvent::ConfigChanged);
     }
 
-    // ---------- connection ----------
+    // ---------- sources ----------
 
-    fn spawn_attempt(&mut self) {
-        let Some(dev) = self.desired.clone() else {
+    fn rx_mut(&mut self, i: usize) -> &mut Option<mpsc::Receiver<SensorEvent>> {
+        if i == PRIMARY {
+            &mut self.primary_rx
+        } else {
+            &mut self.backup_rx
+        }
+    }
+
+    /// Link timeout for a source kind: `None` for sources without a link (UDP input).
+    fn link_timeout(&self, kind: Option<SourceKind>) -> Option<Duration> {
+        let kind = kind?;
+        if !kind.reconnects_on_silence() {
+            return None;
+        }
+        let stale = self.stale_timeout();
+        Some(if kind.is_network() {
+            stale.max(self.opts.network_link_floor)
+        } else {
+            stale
+        })
+    }
+
+    /// Brings both slots in line with what should run. `restart_*` forces a reconnect even if
+    /// the kind is unchanged (its settings or credentials changed).
+    async fn reconcile(&mut self, restart_primary: bool, restart_backup: bool) {
+        let fb = self.config.source.fallback.clone();
+        let active = self.config.source.active;
+        let want = [
+            self.running.then_some(active),
+            (self.running && fb.enabled && fb.backup != active).then_some(fb.backup),
+        ];
+        for (i, restart) in [(PRIMARY, restart_primary), (BACKUP, restart_backup)] {
+            if self.slots[i].kind != want[i] || (restart && want[i].is_some()) {
+                self.stop_slot(i).await;
+                if let Some(k) = want[i] {
+                    self.start_slot(i, k);
+                }
+            }
+        }
+        if self.live != PRIMARY && self.slots[self.live].kind.is_none() {
+            self.switch_live(PRIMARY, Instant::now());
+        }
+        self.dirty = true;
+    }
+
+    fn start_slot(&mut self, i: usize, kind: SourceKind) {
+        let now = Instant::now();
+        let built = self.factory.build(kind, &self.config);
+        let slot = &mut self.slots[i];
+        *slot = Slot {
+            gen: slot.gen + 1,
+            kind: Some(kind),
+            started: Some(now),
+            ..Default::default()
+        };
+        match built {
+            Ok(src) => {
+                tracing::info!(slot = i, source = kind.tag(), label = %src.label(), "starting source");
+                slot.source = Some(src);
+                self.spawn_attempt(i);
+            }
+            Err(e) => {
+                tracing::info!(slot = i, source = kind.tag(), error = %e, "source not ready");
+                slot.halted = true;
+                // Bluetooth without a chosen sensor simply waits for the user.
+                if e != KtError::NoSensorChosen {
+                    slot.error = Some(e.user());
+                }
+            }
+        }
+    }
+
+    async fn stop_slot(&mut self, i: usize) {
+        let was_live_with_data = i == self.live && self.slots[i].kind.is_some();
+        let slot = &mut self.slots[i];
+        let gen = slot.gen + 1; // invalidates in-flight attempts
+        let session = slot.session.take();
+        *slot = Slot {
+            gen,
+            ..Default::default()
+        };
+        *self.rx_mut(i) = None;
+        if let Some(mut s) = session {
+            s.disconnect().await;
+        }
+        if was_live_with_data {
+            self.mark_invalid(Instant::now());
+        }
+        self.dirty = true;
+    }
+
+    fn spawn_attempt(&mut self, i: usize) {
+        let slot = &mut self.slots[i];
+        let Some(src) = slot.source.clone() else {
             return;
         };
-        self.attempt_gen += 1;
-        self.attempt_inflight = true;
-        self.next_attempt_at = None;
-        self.snap.retry_at_ms = None;
-        self.set_state(if self.attempt_count == 0 {
+        slot.gen += 1;
+        slot.inflight = true;
+        slot.next_at = None;
+        slot.retry_at_ms = None;
+        slot.state = if slot.attempts == 0 {
             ConnState::Connecting
         } else {
             ConnState::Reconnecting
-        });
-        let gen = self.attempt_gen;
-        let backend = self.backend.clone();
+        };
+        self.dirty = true;
+        let gen = slot.gen;
         let tx = self.attempt_tx.clone();
         tokio::spawn(async move {
             let (ev_tx, ev_rx) = mpsc::channel(64);
-            let res = match tokio::time::timeout(
-                CONNECT_ATTEMPT_TIMEOUT,
-                backend.connect(&dev.id, &dev.name, ev_tx),
-            )
-            .await
-            {
+            let res = match tokio::time::timeout(CONNECT_ATTEMPT_TIMEOUT, src.connect(ev_tx)).await {
                 Ok(r) => r,
-                Err(_) => Err(KtError::ConnectTimeout(dev.name.clone())),
+                Err(_) => Err(KtError::ConnectTimeout(src.label())),
             };
-            let _ = tx.send((gen, res, ev_rx)).await;
+            let _ = tx.send((i, gen, res, ev_rx)).await;
         });
     }
 
-    async fn on_attempt(&mut self, (gen, res, rx): AttemptResult) {
-        if gen != self.attempt_gen || self.desired.is_none() {
+    async fn on_attempt(&mut self, (i, gen, res, rx): AttemptResult) {
+        let slot = &mut self.slots[i];
+        if gen != slot.gen || slot.source.is_none() {
             if let Ok(mut s) = res {
                 s.disconnect().await;
             }
             return;
         }
-        self.attempt_inflight = false;
+        slot.inflight = false;
         let now = Instant::now();
         match res {
             Ok(session) => {
                 let info = session.info();
-                tracing::info!(name = %info.name, "sensor connected");
-                self.session = Some(session);
-                self.session_rx = Some(rx);
-                self.attempt_count = 0;
-                self.last_packet = Some(now);
-                self.processor.on_reconnect();
-                self.beat.reset();
-                self.snap.device = Some(info);
-                self.snap.error = None;
-                self.snap.attempt = 0;
-                self.snap.retry_at_ms = None;
-                self.snap.battery = None;
-                self.set_state(ConnState::NoData);
+                tracing::info!(slot = i, name = %info.name, "source connected");
+                slot.session = Some(session);
+                slot.attempts = 0;
+                slot.last_packet = Some(now);
+                slot.device = Some(info);
+                slot.error = None;
+                slot.retry_at_ms = None;
+                slot.battery = None;
+                slot.state = ConnState::NoData;
+                *self.rx_mut(i) = Some(rx);
+                if i == self.live {
+                    self.processor.on_reconnect();
+                    self.beat.reset();
+                }
             }
             Err(e) => {
-                tracing::info!(error = %e, attempt = self.attempt_count + 1, "connect failed");
-                self.snap.error = Some(e.user());
-                self.schedule_retry(now);
+                tracing::info!(slot = i, error = %e, attempt = slot.attempts + 1, "connect failed");
+                self.fail_slot(i, e, now);
             }
         }
+        self.dirty = true;
     }
 
-    fn schedule_retry(&mut self, now: Instant) {
-        self.attempt_count = self.attempt_count.saturating_add(1);
-        let delay = backoff(self.attempt_count);
-        self.next_attempt_at = Some(now + delay);
-        self.snap.attempt = self.attempt_count;
-        self.snap.retry_at_ms = Some(epoch_ms() + delay.as_millis() as u64);
-        self.set_state(ConnState::Reconnecting);
+    /// Records an error and either schedules a retry or, for errors retrying can't fix, stops.
+    fn fail_slot(&mut self, i: usize, e: KtError, now: Instant) {
+        let slot = &mut self.slots[i];
+        slot.error = Some(e.user());
+        if !e.retriable() {
+            slot.halted = true;
+            slot.next_at = None;
+            slot.retry_at_ms = None;
+            slot.state = ConnState::Idle;
+            return;
+        }
+        slot.attempts = slot.attempts.saturating_add(1);
+        let mut delay = backoff(slot.attempts);
+        if matches!(e, KtError::RateLimited(_)) {
+            delay = delay.max(RATE_LIMIT_BACKOFF);
+        }
+        slot.next_at = Some(now + delay);
+        slot.retry_at_ms = Some(epoch_ms() + delay.as_millis() as u64);
+        slot.state = ConnState::Reconnecting;
     }
 
-    fn on_link_lost(&mut self, reason: Option<KtError>, now: Instant) {
-        if let Some(mut s) = self.session.take() {
+    fn on_link_lost(&mut self, i: usize, reason: Option<KtError>, now: Instant) {
+        let slot = &mut self.slots[i];
+        if let Some(mut s) = slot.session.take() {
             tokio::spawn(async move { s.disconnect().await });
         }
-        self.session_rx = None;
-        self.last_packet = None;
-        self.mark_invalid(now);
-        if let Some(e) = reason {
-            self.snap.error = Some(e.user());
+        slot.last_packet = None;
+        slot.last_valid = None;
+        slot.valid_since = None;
+        *self.rx_mut(i) = None;
+        if i == self.live {
+            self.mark_invalid(now);
         }
-        if self.desired.is_some() {
-            self.schedule_retry(now);
+        let slot = &mut self.slots[i];
+        if slot.source.is_none() {
+            slot.state = ConnState::Idle;
+            return;
+        }
+        match reason {
+            Some(e) => self.fail_slot(i, e, now),
+            None => {
+                // Silent link: keep the last error (if any) and retry.
+                let slot = &mut self.slots[i];
+                slot.attempts = slot.attempts.saturating_add(1);
+                let delay = backoff(slot.attempts);
+                slot.next_at = Some(now + delay);
+                slot.retry_at_ms = Some(epoch_ms() + delay.as_millis() as u64);
+                slot.state = ConnState::Reconnecting;
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Picks the slot that feeds readings: the main source unless fallback is on and the main
+    /// source has been stale for `after_secs` while the backup is delivering. Switching back
+    /// waits until the main source has delivered for [`FALLBACK_RECOVER`].
+    fn evaluate_live(&mut self, now: Instant) {
+        let fb = &self.config.source.fallback;
+        if !fb.enabled || self.slots[BACKUP].kind.is_none() {
+            if self.live != PRIMARY {
+                self.switch_live(PRIMARY, now);
+            }
+            return;
+        }
+        let after = Duration::from_secs(fb.after_secs as u64);
+        let stale = self.stale_timeout();
+        let p = &self.slots[PRIMARY];
+        let primary_stale = p.kind.is_none()
+            || p.last_valid
+                .or(p.started)
+                .is_none_or(|t| now.saturating_duration_since(t) > after);
+        let primary_recovered = p.fresh(now, stale)
+            && p.valid_since
+                .is_some_and(|t| now.saturating_duration_since(t) >= FALLBACK_RECOVER);
+        let backup_fresh = self.slots[BACKUP].fresh(now, stale);
+        let want = if self.live == PRIMARY {
+            if primary_stale && backup_fresh {
+                BACKUP
+            } else {
+                PRIMARY
+            }
+        } else if primary_recovered {
+            PRIMARY
         } else {
-            self.set_state(ConnState::Idle);
+            BACKUP
+        };
+        if want != self.live {
+            self.switch_live(want, now);
         }
     }
 
-    async fn teardown_session(&mut self) {
-        self.attempt_gen += 1; // invalidates in-flight attempts
-        self.attempt_inflight = false;
-        self.next_attempt_at = None;
-        if let Some(mut s) = self.session.take() {
-            s.disconnect().await;
+    fn switch_live(&mut self, to: usize, now: Instant) {
+        if to == self.live {
+            return;
         }
-        self.session_rx = None;
-        self.last_packet = None;
-        self.snap.device = None;
-        self.snap.battery = None;
+        tracing::info!(
+            from = ?self.slots[self.live].kind.map(SourceKind::tag),
+            to = ?self.slots[to].kind.map(SourceKind::tag),
+            "switching live source"
+        );
+        self.live = to;
+        self.processor.on_reconnect();
+        self.beat.reset();
+        self.recent.clear();
+        self.last_valid_at = self.slots[to].last_valid;
+        if !self.data_valid(now) {
+            self.mark_invalid(now);
+        }
         self.dirty = true;
     }
 
@@ -954,55 +1253,87 @@ impl Engine {
         self.emit_osc(now, false, false);
     }
 
-    fn set_state(&mut self, s: ConnState) {
-        if self.snap.state != s {
-            self.snap.state = s;
-            self.dirty = true;
-        }
-    }
-
     // ---------- sensor data ----------
 
-    async fn on_sensor_event(&mut self, ev: Option<SensorEvent>) {
+    async fn on_sensor_event(&mut self, i: usize, ev: Option<SensorEvent>) {
         let now = Instant::now();
         match ev {
-            Some(SensorEvent::Measurement { data, received }) => self.on_measurement(&data, received, now),
+            Some(SensorEvent::Sample(s)) => self.on_sample(i, s, now),
+            Some(SensorEvent::Unreadable(detail)) => {
+                tracing::debug!(slot = i, detail = %detail, "unreadable packet");
+                self.slots[i].last_packet = Some(now);
+                if i == self.live {
+                    self.snap.packets += 1;
+                    self.dirty = true;
+                }
+            }
             Some(SensorEvent::Battery(b)) => {
-                self.snap.battery = Some(b);
+                self.slots[i].battery = Some(b);
                 self.dirty = true;
             }
             Some(SensorEvent::Disconnected(reason)) => {
-                tracing::info!(reason = ?reason, "sensor link lost");
-                self.on_link_lost(reason, now);
+                tracing::info!(slot = i, reason = ?reason, "source link lost");
+                self.on_link_lost(i, reason, now);
             }
-            None => self.on_link_lost(Some(KtError::Ble("connection closed".into())), now),
+            None => {
+                let reason = match self.slots[i].kind {
+                    Some(SourceKind::Ble | SourceKind::Demo) => KtError::Ble("connection closed".into()),
+                    _ => KtError::Service("The source", "connection closed".into()),
+                };
+                self.on_link_lost(i, Some(reason), now)
+            }
         }
     }
 
-    fn on_measurement(&mut self, data: &[u8], received: Instant, now: Instant) {
-        self.last_packet = Some(now);
-        self.snap.packets += 1;
-        self.snap.last_packet_ms = Some(epoch_ms());
-        let m = match hrm::parse(data) {
-            Ok(m) => m,
-            Err(e) => {
-                tracing::debug!(error = %e, bytes = ?data, "unparseable measurement");
+    fn on_sample(&mut self, i: usize, s: HrSample, now: Instant) {
+        let slot = &mut self.slots[i];
+        slot.last_packet = Some(now);
+        slot.last_packet_ms = Some(epoch_ms());
+        if let Some(b) = s.battery {
+            slot.battery = Some(b);
+        }
+        if i != self.live {
+            // Standby source: only track whether it is delivering.
+            let ok = (MIN_VALID_BPM..=MAX_VALID_BPM).contains(&s.bpm) && s.has_contact();
+            if ok {
+                slot.last_valid = Some(now);
+                slot.valid_since.get_or_insert(now);
+                slot.state = ConnState::Connected;
+            } else {
+                slot.valid_since = None;
+                slot.state = ConnState::NoData;
+            }
+            self.dirty = true;
+            self.evaluate_live(now);
+            if i != self.live {
                 return;
             }
-        };
-        self.snap.contact = m.contact;
-        if m.energy_expended_kj.is_some() {
-            self.snap.energy_kj = m.energy_expended_kj;
         }
-        let outcome = self.processor.push_bpm(m.bpm, m.contact.has_contact(), now);
-        if m.contact.has_contact() {
-            for rr in m.rr_ms() {
+        self.on_measurement(i, s, now);
+    }
+
+    fn on_measurement(&mut self, i: usize, s: HrSample, now: Instant) {
+        self.snap.packets += 1;
+        self.snap.last_packet_ms = Some(epoch_ms());
+        self.snap.contact = s.sensor_contact();
+        if s.energy_kj.is_some() {
+            self.snap.energy_kj = s.energy_kj;
+        }
+        let outcome = self.processor.push_bpm(s.bpm, s.has_contact(), now);
+        if s.has_contact() {
+            for &rr in &s.rr_ms {
                 self.processor.push_rr(rr, now);
                 self.beat.push_rr(Duration::from_secs_f64(rr / 1000.0), now);
             }
         }
         if let SampleOutcome::Accepted { raw, smoothed } = outcome {
             self.last_valid_at = Some(now);
+            let slot = &mut self.slots[i];
+            slot.last_valid = Some(now);
+            slot.valid_since.get_or_insert(now);
+            if slot.session.is_some() {
+                slot.state = ConnState::Connected;
+            }
             let shown = smoothed.round() as u16;
             self.snap.bpm = Some(shown);
             self.snap.raw_bpm = Some(raw);
@@ -1031,9 +1362,6 @@ impl Engine {
                 h.push_back(point);
             }
             let _ = self.ev_tx.send(EngineEvent::Sample(point));
-            if self.session.is_some() {
-                self.set_state(ConnState::Connected);
-            }
         }
         self.snap.rejected_spikes = self.processor.rejected_spikes();
         self.snap.rejected_out_of_range = self.processor.rejected_out_of_range();
@@ -1041,7 +1369,7 @@ impl Engine {
 
         // Hot path: send changed values right away.
         self.emit_osc(now, false, false);
-        let us = received.elapsed().as_micros() as u64;
+        let us = s.received.elapsed().as_micros() as u64;
         let l = &mut self.snap.latency;
         l.last_us = us;
         l.max_us = l.max_us.max(us);
@@ -1049,8 +1377,14 @@ impl Engine {
         self.latency_sum_us += us;
         l.avg_us = self.latency_sum_us / l.samples;
         if self.config.debug.log_latency {
-            tracing::debug!(latency_us = us, bpm = m.bpm, "ble->osc latency");
+            tracing::debug!(
+                latency_us = us,
+                bpm = s.bpm,
+                source = s.source.tag(),
+                "source->osc latency"
+            );
         }
+        self.evaluate_live(now);
     }
 
     fn metrics(&mut self, now: Instant) -> Metrics {
@@ -1086,7 +1420,7 @@ impl Engine {
             max_hr: self.config.zones.max_hr(),
             zone: self.config.zones.zone(hr),
             hrv_ms: self.processor.hrv_ms(now),
-            battery: self.snap.battery,
+            battery: self.slots[self.live].battery,
             beat_toggle: self.beat_toggle,
             beat_pulse: self.beat_pulse,
             session_min: stats.min,
@@ -1285,20 +1619,14 @@ impl Engine {
             self.socket_v4.as_ref()
         } else {
             if self.socket_v6.is_none() {
-                self.socket_v6 = std::net::UdpSocket::bind((Ipv6Addr::UNSPECIFIED, 0))
-                    .and_then(|s| {
-                        s.set_nonblocking(true)?;
-                        Ok(s)
-                    })
-                    .ok()
-                    .and_then(|s| UdpSocket::from_std(s).ok());
+                self.socket_v6 = nonblocking_udp((Ipv6Addr::UNSPECIFIED, 0).into());
             }
             self.socket_v6.as_ref()
         };
         let Some(sock) = sock else {
             return Err("no UDP socket".into());
         };
-        sock.try_send_to(&o.bytes, o.dest).map(|_| ()).map_err(|e| {
+        sock.send_to(&o.bytes, o.dest).map(|_| ()).map_err(|e| {
             tracing::debug!(error = %e, dest = %o.dest, "OSC send failed");
             KtError::OscSocket(e.to_string()).user().message
         })
@@ -1404,18 +1732,29 @@ impl Engine {
     fn on_adapter(&mut self, s: AdapterState) {
         if self.snap.adapter != s {
             tracing::info!(state = ?s, "adapter state");
+            let recovered = matches!(self.snap.adapter, AdapterState::Off | AdapterState::Missing);
             self.snap.adapter = s;
             self.dirty = true;
             // Clear a stale radio error once the radio is back; reconnect promptly.
             if s == AdapterState::Ready {
-                if matches!(
-                    self.snap.error.as_ref().map(|e| e.code.as_str()),
-                    Some("radio_off" | "adapter_missing")
-                ) {
-                    self.snap.error = None;
-                }
-                if self.desired.is_some() && self.session.is_none() && !self.attempt_inflight {
-                    self.next_attempt_at = Some(Instant::now());
+                for slot in &mut self.slots {
+                    if !matches!(slot.kind, Some(SourceKind::Ble | SourceKind::Demo)) {
+                        continue;
+                    }
+                    if matches!(
+                        slot.error.as_ref().map(|e| e.code.as_str()),
+                        Some("radio_off" | "adapter_missing")
+                    ) {
+                        slot.error = None;
+                    }
+                    if recovered
+                        && slot.source.is_some()
+                        && slot.session.is_none()
+                        && !slot.inflight
+                        && !slot.halted
+                    {
+                        slot.next_at = Some(Instant::now());
+                    }
                 }
             }
         }
@@ -1423,7 +1762,87 @@ impl Engine {
 
     // ---------- output ----------
 
+    /// Copies slot state into the snapshot: top-level connection fields describe the live slot.
+    fn sync_snapshot(&mut self) {
+        let now = Instant::now();
+        let live = &self.slots[self.live];
+        let active = self.config.source.active;
+        let capabilities = live
+            .source
+            .as_ref()
+            .map(|s| s.capabilities())
+            .unwrap_or_else(|| active.capabilities());
+        let target = (self.running && matches!(active, SourceKind::Ble | SourceKind::Demo))
+            .then(|| self.config.device.last_device.clone())
+            .flatten();
+        let sources: Vec<SlotStatus> = self
+            .slots
+            .iter()
+            .enumerate()
+            .filter_map(|(i, sl)| {
+                Some(SlotStatus {
+                    role: if i == PRIMARY {
+                        SlotRole::Primary
+                    } else {
+                        SlotRole::Backup
+                    },
+                    kind: sl.kind?,
+                    label: sl
+                        .device
+                        .as_ref()
+                        .map(|d| d.name.clone())
+                        .or_else(|| sl.source.as_ref().map(|s| s.label())),
+                    state: sl.state,
+                    error: sl.error.clone(),
+                    last_packet_ms: sl.last_packet_ms,
+                    live: i == self.live,
+                })
+            })
+            .collect();
+        let live_kind = if self.snap_valid(now) { live.kind } else { None };
+        let fallback_active = self.live == BACKUP;
+        let error = live.error.clone().or_else(|| self.engine_error.clone());
+        let (state, attempts, retry_at_ms, device, battery) = (
+            live.state,
+            live.attempts,
+            live.retry_at_ms,
+            live.device.clone(),
+            live.battery,
+        );
+        let snap = &mut self.snap;
+        let mut changed = false;
+        macro_rules! set {
+            ($field:ident, $v:expr) => {{
+                let v = $v;
+                if snap.$field != v {
+                    snap.$field = v;
+                    changed = true;
+                }
+            }};
+        }
+        set!(state, state);
+        set!(attempt, attempts);
+        set!(retry_at_ms, retry_at_ms);
+        set!(device, device);
+        set!(error, error);
+        set!(battery, battery);
+        set!(source, active);
+        set!(live_source, live_kind);
+        set!(fallback_active, fallback_active);
+        set!(capabilities, capabilities);
+        set!(target, target);
+        set!(sources, sources);
+        if changed {
+            self.dirty = true;
+        }
+    }
+
+    fn snap_valid(&self, now: Instant) -> bool {
+        self.data_valid(now) || self.sweep.is_some()
+    }
+
     fn publish(&mut self) {
+        self.sync_snapshot();
         if self.dirty {
             self.dirty = false;
             let snap = self.snap.clone();
@@ -1439,12 +1858,19 @@ impl Engine {
     }
 
     async fn shutdown(&mut self) {
-        self.desired = None;
-        self.teardown_session().await;
+        self.running = false;
+        self.stop_slot(PRIMARY).await;
+        self.stop_slot(BACKUP).await;
         self.mark_invalid(Instant::now());
         let _ = self.backend.stop_scan().await;
         self.oscq = None;
     }
+}
+
+fn nonblocking_udp(addr: SocketAddr) -> Option<UdpSocket> {
+    let s = UdpSocket::bind(addr).ok()?;
+    s.set_nonblocking(true).ok()?;
+    Some(s)
 }
 
 /// Test sweep: 60 → 180 → 60 bpm over [`SWEEP_LEN`].

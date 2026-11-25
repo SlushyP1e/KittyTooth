@@ -144,7 +144,15 @@ fn start(cfg: Config, steps: Vec<MockStep>) -> (EngineHandle, Arc<MockBackend>) 
         "Test Strap",
         steps,
     )]));
-    let h = engine::start(cfg, None, backend.clone(), EngineOptions { mdns: false });
+    let h = engine::start(
+        cfg,
+        None,
+        backend.clone(),
+        EngineOptions {
+            mdns: false,
+            ..Default::default()
+        },
+    );
     (h, backend)
 }
 
@@ -472,7 +480,10 @@ async fn reconnect_backoff_after_failures() {
         base_config(vec![target("t", l.port, Preset::KittyTooth)]),
         None,
         backend.clone(),
-        EngineOptions { mdns: false },
+        EngineOptions {
+            mdns: false,
+            ..Default::default()
+        },
     );
     // Attempts at ~0 s, +1 s, +2 s, +4 s → success at ~7 s.
     tokio::time::sleep(Duration::from_millis(500)).await;
@@ -656,7 +667,15 @@ async fn test_sweep_works_without_sensor() {
     let mut cfg = base_config(vec![target("t", l.port, Preset::KittyTooth)]);
     cfg.device.last_device = None;
     let backend = Arc::new(MockBackend::new(vec![]));
-    let h = engine::start(cfg, None, backend, EngineOptions { mdns: false });
+    let h = engine::start(
+        cfg,
+        None,
+        backend,
+        EngineOptions {
+            mdns: false,
+            ..Default::default()
+        },
+    );
     tokio::time::sleep(Duration::from_millis(200)).await;
     h.test_sweep(true).await.unwrap();
     assert!(

@@ -275,12 +275,13 @@ impl HeartRateBackend for BleBackend {
             }
 
             let tx = events.clone();
+            let kind = crate::source::SourceKind::of_device(id);
             let notify_task = tokio::spawn(async move {
                 while let Some(n) = notifications.next().await {
                     let ev = if n.uuid == HEART_RATE_MEASUREMENT {
-                        SensorEvent::Measurement {
-                            data: n.value,
-                            received: Instant::now(),
+                        match crate::source::HrSample::from_hrm(&n.value, Instant::now(), kind) {
+                            Ok(s) => SensorEvent::Sample(s),
+                            Err(e) => SensorEvent::Unreadable(e.to_string()),
                         }
                     } else if n.uuid == BATTERY_LEVEL {
                         match parse_battery(&n.value) {

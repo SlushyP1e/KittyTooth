@@ -24,6 +24,8 @@ mdns-sd = "0.22"
 rand = "0.9"
 btleplug = { version = "0.13", optional = true }
 futures = { version = "0.3", optional = true }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio-tungstenite = { version = "0.30", features = ["native-tls"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

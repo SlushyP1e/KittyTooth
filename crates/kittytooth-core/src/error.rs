@@ -40,6 +40,24 @@ pub enum KtError {
     InvalidInput(String),
     #[error("engine is not running")]
     EngineStopped,
+    #[error("no Bluetooth sensor chosen")]
+    NoSensorChosen,
+    #[error("missing credential {0}")]
+    MissingCredential(&'static str),
+    #[error("invalid device ID {0}")]
+    InvalidDeviceId(String),
+    #[error("token rejected: {0}")]
+    BadToken(String),
+    #[error("HypeRate API key rejected")]
+    BadApiKey,
+    #[error("Pulsoid plan required")]
+    PremiumRequired,
+    #[error("{0} unreachable")]
+    Offline(&'static str),
+    #[error("{0} rate limited")]
+    RateLimited(&'static str),
+    #[error("{0} error: {1}")]
+    Service(&'static str, String),
 }
 
 /// What the UI shows for an error: never a stack trace, always a suggested fix.
@@ -75,7 +93,31 @@ impl KtError {
             KtError::Io(_) => "io_error",
             KtError::InvalidInput(_) => "invalid_input",
             KtError::EngineStopped => "engine_stopped",
+            KtError::NoSensorChosen => "no_sensor_chosen",
+            KtError::MissingCredential(_) => "missing_credential",
+            KtError::InvalidDeviceId(_) => "invalid_device_id",
+            KtError::BadToken(_) => "bad_token",
+            KtError::BadApiKey => "bad_api_key",
+            KtError::PremiumRequired => "premium_required",
+            KtError::Offline(_) => "offline",
+            KtError::RateLimited(_) => "rate_limited",
+            KtError::Service(..) => "service_error",
         }
+    }
+
+    /// Whether retrying with the same settings can succeed. Rejected credentials and IDs stop
+    /// the reconnect loop until the user changes something.
+    pub fn retriable(&self) -> bool {
+        !matches!(
+            self,
+            KtError::NoSensorChosen
+                | KtError::MissingCredential(_)
+                | KtError::InvalidDeviceId(_)
+                | KtError::BadToken(_)
+                | KtError::BadApiKey
+                | KtError::PremiumRequired
+                | KtError::InvalidOscAddress(_)
+        )
     }
 
     /// Plain-language description with a fix suggestion.
@@ -166,6 +208,62 @@ impl KtError {
                 "The background engine isn't running.".into(),
                 "Restart KittyTooth. If this happens again, use Copy diagnostics in Settings and report it.".into(),
             ),
+            KtError::NoSensorChosen => (
+                "No sensor chosen",
+                "Bluetooth is the active source, but no sensor has been picked yet.".into(),
+                "Open Devices, scan, and connect your strap or watch. KittyTooth remembers it.".into(),
+            ),
+            KtError::MissingCredential(which) => match *which {
+                "pulsoid_token" => (
+                    "Pulsoid token needed",
+                    "KittyTooth needs your Pulsoid access token to read your heart rate.".into(),
+                    "Press Get token on the Source page, create a token on Pulsoid, and paste it into the token field.".into(),
+                ),
+                _ => (
+                    "HypeRate API key needed",
+                    "This build has no HypeRate API key, and none has been entered.".into(),
+                    "Paste a HypeRate developer API key on the Source page (request one at hyperate.io/api).".into(),
+                ),
+            },
+            KtError::InvalidDeviceId(id) => (
+                "HypeRate device ID not accepted",
+                if id.is_empty() {
+                    "No HypeRate device ID has been entered.".into()
+                } else {
+                    format!("HypeRate didn't accept the device ID \"{id}\".")
+                },
+                "Copy the ID exactly as the HypeRate app shows it (letters and digits only) into the Device ID field.".into(),
+            ),
+            KtError::BadToken(_) => (
+                "Pulsoid token rejected",
+                "Pulsoid says the access token is invalid, revoked or expired.".into(),
+                "Create a new token with Get token on the Source page and paste it in. KittyTooth stops retrying until you do.".into(),
+            ),
+            KtError::BadApiKey => (
+                "HypeRate API key rejected",
+                "HypeRate refused the developer API key.".into(),
+                "Check the API key override on the Source page, or clear it to use the built-in key.".into(),
+            ),
+            KtError::PremiumRequired => (
+                "Pulsoid plan needed",
+                "Pulsoid only allows API tokens on its BRO plan or trial.".into(),
+                "Start the Pulsoid BRO plan or trial, or switch to Bluetooth or another source.".into(),
+            ),
+            KtError::Offline(service) => (
+                "Can't reach the service",
+                format!("{service} can't be reached from this PC right now."),
+                "Check your internet connection, VPN and firewall. KittyTooth keeps retrying.".into(),
+            ),
+            KtError::RateLimited(service) => (
+                "Too many connections",
+                format!("{service} is rate limiting connections from this PC."),
+                "Close other apps or browser tabs reading the same heart rate. KittyTooth waits and retries.".into(),
+            ),
+            KtError::Service(service, detail) => (
+                "Service problem",
+                format!("{service} reported a problem ({}).", short(detail)),
+                "This is usually temporary. KittyTooth keeps retrying; check the service's status page if it lasts.".into(),
+            ),
         };
         UserError {
             code: self.code().into(),
@@ -236,6 +334,17 @@ mod tests {
             KtError::Io("x".into()),
             KtError::InvalidInput("port must be 1-65535".into()),
             KtError::EngineStopped,
+            KtError::NoSensorChosen,
+            KtError::MissingCredential("pulsoid_token"),
+            KtError::MissingCredential("hyperate_key"),
+            KtError::InvalidDeviceId("x".into()),
+            KtError::InvalidDeviceId(String::new()),
+            KtError::BadToken("token_expired".into()),
+            KtError::BadApiKey,
+            KtError::PremiumRequired,
+            KtError::Offline("Pulsoid"),
+            KtError::RateLimited("HypeRate"),
+            KtError::Service("Pulsoid", "HTTP 503".into()),
         ];
         for e in all {
             let u = e.user();

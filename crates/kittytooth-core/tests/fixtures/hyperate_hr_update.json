@@ -1,0 +1,6 @@
+{
+  "topic": "hr:abc123",
+  "event": "hr_update",
+  "payload": { "hr": 75 },
+  "ref": null
+}

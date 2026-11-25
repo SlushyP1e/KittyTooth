@@ -1,0 +1,7 @@
+{
+  "type": "heart_rate",
+  "timestamp": "2026-10-17T12:00:00.123Z",
+  "heartRate": {
+    "bpm": 85
+  }
+}

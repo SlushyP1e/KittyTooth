@@ -12,8 +12,9 @@ use serde_json::{json, Value};
 
 use crate::error::{KtError, KtResult};
 use crate::processing::{Smoothing, ZoneConfig};
+use crate::source::SourceKind;
 
-pub const CURRENT_SCHEMA_VERSION: u32 = 2;
+pub const CURRENT_SCHEMA_VERSION: u32 = 3;
 pub const CONFIG_FILE: &str = "config.json";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -21,6 +22,7 @@ pub const CONFIG_FILE: &str = "config.json";
 pub struct Config {
     pub schema_version: u32,
     pub device: DeviceConfig,
+    pub source: SourceConfig,
     pub processing: ProcessingConfig,
     pub zones: ZoneConfig,
     pub osc: OscConfig,
@@ -34,6 +36,7 @@ impl Default for Config {
         Self {
             schema_version: CURRENT_SCHEMA_VERSION,
             device: DeviceConfig::default(),
+            source: SourceConfig::default(),
             processing: ProcessingConfig::default(),
             zones: ZoneConfig::default(),
             osc: OscConfig::default(),
@@ -70,6 +73,63 @@ impl Default for DeviceConfig {
             show_all_devices: false,
             stale_timeout_secs: 5,
             demo_device: true,
+        }
+    }
+}
+
+/// Which heart rate source is active, per-source settings and the optional fallback.
+/// Tokens and keys are not stored here; they live in the OS credential store.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct SourceConfig {
+    pub active: SourceKind,
+    pub hyperate: HypeRateConfig,
+    pub osc_input: OscInputConfig,
+    pub fallback: FallbackConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct HypeRateConfig {
+    /// The ID shown in the HypeRate app.
+    pub device_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OscInputConfig {
+    pub port: u16,
+    /// OSC address carrying the heart rate (a bare name gets the /avatar/parameters/ prefix).
+    pub address: String,
+    /// Listen on all interfaces instead of only this PC.
+    pub lan: bool,
+}
+
+impl Default for OscInputConfig {
+    fn default() -> Self {
+        Self {
+            port: 9010,
+            address: "/avatar/parameters/HR".into(),
+            lan: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FallbackConfig {
+    pub enabled: bool,
+    pub backup: SourceKind,
+    /// Seconds the main source may be stale before switching to the backup.
+    pub after_secs: u32,
+}
+
+impl Default for FallbackConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            backup: SourceKind::Demo,
+            after_secs: 5,
         }
     }
 }
@@ -367,6 +427,15 @@ impl Config {
         if !matches!(self.ui.graph_range.as_str(), "60s" | "5m" | "session") {
             self.ui.graph_range = "60s".into();
         }
+        self.source.fallback.after_secs = self.source.fallback.after_secs.clamp(2, 120);
+        if self.source.osc_input.port < 1024 {
+            self.source.osc_input.port = OscInputConfig::default().port;
+        }
+        self.source.osc_input.address = self.source.osc_input.address.trim().to_string();
+        if self.source.osc_input.address.is_empty() {
+            self.source.osc_input.address = OscInputConfig::default().address;
+        }
+        self.source.hyperate.device_id = self.source.hyperate.device_id.trim().chars().take(32).collect();
         if self.overlay.port < 1024 {
             self.overlay.port = OverlayConfig::default().port;
         }
@@ -396,6 +465,7 @@ pub fn migrate(mut v: Value) -> KtResult<(Value, u32)> {
     while ver < CURRENT_SCHEMA_VERSION {
         v = match ver {
             1 => migrate_v1_to_v2(v),
+            2 => migrate_v2_to_v3(v),
             _ => return Err(KtError::Config(format!("unknown schema version {ver}"))),
         };
         ver += 1;
@@ -440,6 +510,20 @@ fn migrate_v1_to_v2(v: Value) -> Value {
         },
         "ui": { "theme": s("theme").unwrap_or_else(|| "dark".into()) }
     })
+}
+
+/// v3 adds `source`. A remembered demo device means the demo source was in use.
+fn migrate_v2_to_v3(mut v: Value) -> Value {
+    let demo = v
+        .pointer("/device/last_device/id")
+        .and_then(Value::as_str)
+        .is_some_and(|id| id.starts_with(crate::sensor::DEMO_PREFIX));
+    if let Some(o) = v.as_object_mut() {
+        o.entry("source")
+            .or_insert_with(|| json!({ "active": if demo { "demo" } else { "ble" } }));
+        o.insert("schema_version".into(), json!(3));
+    }
+    v
 }
 
 /// Outcome of loading the config file.
@@ -705,8 +789,40 @@ mod tests {
         assert_eq!(r.config.osc.targets[0].port, 9002);
         assert!(d.join("config.v1.bak.json").exists());
         let on_disk: Value = serde_json::from_str(&fs::read_to_string(store.path()).unwrap()).unwrap();
-        assert_eq!(on_disk["schema_version"], 2);
+        assert_eq!(on_disk["schema_version"], CURRENT_SCHEMA_VERSION);
+        assert_eq!(on_disk["source"]["active"], "ble");
         fs::remove_dir_all(d).ok();
+    }
+
+    #[test]
+    fn migrates_v2_source() {
+        let (c, from) = ConfigStore::parse(
+            r#"{"schema_version":2,"device":{"last_device":{"id":"demo:strap","name":"Demo"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(from, 2);
+        assert_eq!(c.source.active, SourceKind::Demo);
+        let (c, _) = ConfigStore::parse(
+            r#"{"schema_version":2,"device":{"last_device":{"id":"AA:BB","name":"H10"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(c.source.active, SourceKind::Ble);
+        assert_eq!(c.source.osc_input.port, 9010);
+        assert!(!c.source.fallback.enabled);
+    }
+
+    #[test]
+    fn source_sanitize() {
+        let mut c = Config::default();
+        c.source.fallback.after_secs = 0;
+        c.source.osc_input.port = 80;
+        c.source.osc_input.address = "  ".into();
+        c.source.hyperate.device_id = "  abc  ".into();
+        let c = c.sanitized();
+        assert_eq!(c.source.fallback.after_secs, 2);
+        assert_eq!(c.source.osc_input.port, 9010);
+        assert_eq!(c.source.osc_input.address, "/avatar/parameters/HR");
+        assert_eq!(c.source.hyperate.device_id, "abc");
     }
 
     #[test]

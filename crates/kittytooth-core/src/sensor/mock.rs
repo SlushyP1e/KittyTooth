@@ -21,6 +21,7 @@ use crate::osc::sender::epoch_ms;
 use crate::sensor::{
     AdapterState, DeviceInfo, DiscoveredDevice, HeartRateBackend, SensorEvent, SensorSession, DEMO_PREFIX,
 };
+use crate::source::{HrSample, SourceKind};
 
 /// One step of a scripted sensor.
 #[derive(Debug, Clone, PartialEq)]
@@ -242,9 +243,10 @@ impl HeartRateBackend for MockBackend {
         }
         let started = self.started;
         let script = dev.script.clone();
+        let kind = SourceKind::of_device(&dev.id);
         let task = tokio::spawn(async move {
             match script {
-                MockScript::Steps(steps) => run_steps(steps, events).await,
+                MockScript::Steps(steps) => run_steps(steps, kind, events).await,
                 MockScript::DemoStrap => run_demo(started, true, events).await,
                 MockScript::DemoWatch => run_demo(started, false, events).await,
             }
@@ -287,7 +289,14 @@ impl Drop for MockSession {
     }
 }
 
-async fn run_steps(steps: Vec<MockStep>, events: mpsc::Sender<SensorEvent>) {
+fn sample(data: &[u8], kind: SourceKind) -> SensorEvent {
+    match HrSample::from_hrm(data, Instant::now(), kind) {
+        Ok(s) => SensorEvent::Sample(s),
+        Err(e) => SensorEvent::Unreadable(e.to_string()),
+    }
+}
+
+async fn run_steps(steps: Vec<MockStep>, kind: SourceKind, events: mpsc::Sender<SensorEvent>) {
     for s in steps {
         let ev = match s {
             MockStep::Hr { bpm, rr_ms, contact } => {
@@ -298,15 +307,9 @@ async fn run_steps(steps: Vec<MockStep>, events: mpsc::Sender<SensorEvent>) {
                     energy_expended_kj: None,
                     rr_intervals: rr_ms.iter().map(|&ms| ms_to_rr(ms)).collect(),
                 };
-                SensorEvent::Measurement {
-                    data: encode(&m),
-                    received: Instant::now(),
-                }
+                sample(&encode(&m), kind)
             }
-            MockStep::Raw(data) => SensorEvent::Measurement {
-                data,
-                received: Instant::now(),
-            },
+            MockStep::Raw(data) => sample(&data, kind),
             MockStep::Battery(b) => SensorEvent::Battery(b),
             MockStep::Wait(d) => {
                 tokio::time::sleep(d).await;
@@ -438,10 +441,7 @@ async fn run_demo(started: Instant, strap: bool, events: mpsc::Sender<SensorEven
         } else {
             HeartRateMeasurement::simple((bpm as i32 + rng.random_range(-1..=1)).clamp(0, 255) as u8)
         };
-        let ev = SensorEvent::Measurement {
-            data: encode(&m),
-            received: Instant::now(),
-        };
+        let ev = sample(&encode(&m), SourceKind::Demo);
         if events.send(ev).await.is_err() {
             return;
         }
@@ -467,7 +467,6 @@ fn take_one(n: &std::sync::atomic::AtomicU32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hrm::parse;
 
     #[test]
     fn demo_profile_is_plausible() {
@@ -500,11 +499,11 @@ mod tests {
         assert_eq!(s.info().name, "Test");
         assert_eq!(rx.recv().await, Some(SensorEvent::Battery(77)));
         match rx.recv().await {
-            Some(SensorEvent::Measurement { data, .. }) => {
-                let m = parse(&data).unwrap();
-                assert_eq!(m.bpm, 70);
-                assert_eq!(m.contact, SensorContact::Detected);
-                assert_eq!(m.rr_intervals.len(), 1);
+            Some(SensorEvent::Sample(s)) => {
+                assert_eq!(s.bpm, 70);
+                assert_eq!(s.contact, Some(true));
+                assert_eq!(s.rr_ms.len(), 1);
+                assert_eq!(s.source, SourceKind::Ble);
             }
             o => panic!("{o:?}"),
         }
@@ -568,11 +567,11 @@ mod tests {
         let _s = b.connect("demo:strap", "", tx).await.unwrap();
         assert!(matches!(rx.recv().await, Some(SensorEvent::Battery(_))));
         // First interval tick fires immediately.
-        let Some(SensorEvent::Measurement { data, .. }) = rx.recv().await else {
+        let Some(SensorEvent::Sample(s)) = rx.recv().await else {
             panic!()
         };
-        let m = parse(&data).unwrap();
-        assert!((55..=80).contains(&m.bpm), "{}", m.bpm);
-        assert_eq!(m.contact, SensorContact::Detected);
+        assert!((55..=80).contains(&s.bpm), "{}", s.bpm);
+        assert_eq!(s.contact, Some(true));
+        assert_eq!(s.source, SourceKind::Demo);
     }
 }
