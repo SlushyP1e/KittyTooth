@@ -1,0 +1,13 @@
+/target
+node_modules/
+/dist
+/build
+/src-tauri/target
+/src-tauri/gen/schemas
+/test-results
+/playwright-report
+/e2e/.artifacts
+*.log
+.DS_Store
+.vite/
+coverage/

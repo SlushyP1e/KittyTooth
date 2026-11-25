@@ -1,0 +1,9 @@
+{
+  "type": "ingestion_pause",
+  "timestamp": "2026-10-17T12:00:00.123Z",
+  "ingestionPause": {
+    "id": "3f6b1c2e-8d4a-4f7e-9b1a-2c5d6e7f8a9b",
+    "started_at": "2026-10-17T12:00:00.123Z",
+    "ends_at": "2026-10-17T12:05:00Z"
+  }
+}

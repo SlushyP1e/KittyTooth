@@ -1,0 +1,6 @@
+{
+  "topic": "hr:abc123",
+  "event": "phx_reply",
+  "payload": { "status": "error", "response": { "reason": "unmatched topic" } },
+  "ref": "1"
+}
