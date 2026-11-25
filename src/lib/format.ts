@@ -1,7 +1,6 @@
 import type { BodySensorLocation, ConnState, Metric, Preset, SensorContact, Snapshot } from "./types";
 
 export const ZONE_NAMES = ["Rest", "Warm-up", "Fat burn", "Aerobic", "Threshold", "Max"] as const;
-export const ZONE_COLORS = ["#8b93a7", "#5aa9ff", "#3fcf97", "#f5c84c", "#ff9a52", "#ff5d73"] as const;
 
 export function formatBpm(v: number | null | undefined): string {
   return v == null || !Number.isFinite(v) ? "--" : String(Math.round(v));
@@ -15,9 +14,6 @@ export function zoneName(z: number): string {
   return ZONE_NAMES[Math.max(0, Math.min(5, Math.round(z)))];
 }
 
-export function zoneColor(z: number): string {
-  return ZONE_COLORS[Math.max(0, Math.min(5, Math.round(z)))];
-}
 
 /** "just now", "5 s ago", "3 min ago", "2 h ago". */
 export function timeAgo(ms: number, now = Date.now()): string {
@@ -134,20 +130,6 @@ export function isValidHost(h: string): boolean {
 
 export function isValidPort(p: number): boolean {
   return Number.isInteger(p) && p >= 1 && p <= 65535;
-}
-
-/** Relative luminance contrast: picks black or white text for a background color. */
-export function readableOn(hex: string): "#000000" | "#ffffff" {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex);
-  if (!m) return "#ffffff";
-  const n = parseInt(m[1], 16);
-  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((c) => {
-    const x = c / 255;
-    return x <= 0.03928 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4;
-  });
-  const lum = 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
-  // Pick whichever gives the higher WCAG contrast ratio (crossover at L ~ 0.179).
-  return (lum + 0.05) / 0.05 >= 1.05 / (lum + 0.05) ? "#000000" : "#ffffff";
 }
 
 export function renderChatbox(template: string, s: Snapshot, phase = true): string {

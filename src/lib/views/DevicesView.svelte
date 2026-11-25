@@ -5,7 +5,7 @@
   import Toggle from "../components/Toggle.svelte";
   import StatusChip from "../components/StatusChip.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
-  import { connectionStatus, rssiLabel, timeAgo } from "../format";
+  import { connectionStatus, timeAgo } from "../format";
   import type { DiscoveredDevice, UserError } from "../types";
 
   const s = $derived(app.snapshot);
@@ -30,7 +30,6 @@
           }
         : null,
   );
-  // Show scan errors that aren't already covered by the adapter banner.
   const scanError = $derived(
     s.scan_error && (!adapterError || s.scan_error.code !== adapterError.code) ? s.scan_error : null,
   );
@@ -49,13 +48,15 @@
   }
 </script>
 
-<section class="devices" aria-labelledby="dev-title">
-  <header class="row">
-    <h1 id="dev-title">Devices</h1>
-    <span class="spacer"></span>
-    {#if s.scanning}
-      <span class="scanning muted" role="status"><span class="spinner" aria-hidden="true"></span>Scanning</span>
-    {/if}
+<section class="page" aria-labelledby="dev-title">
+  <header class="page-head">
+    <div class="titles">
+      <h1 id="dev-title" class="page-title">Devices</h1>
+      <p class="subtitle">
+        {s.scanning ? "Scanning for heart rate sensors nearby" : "Scan to find heart rate sensors nearby"}
+      </p>
+    </div>
+    {#if s.scanning}<span class="scanning mono" role="status"><span class="pulse" aria-hidden="true"></span>scanning</span>{/if}
     <button class="btn" onclick={() => app.run((a) => (s.scanning ? a.stopScan() : a.startScan()))}>
       {s.scanning ? "Stop scan" : "Scan"}
     </button>
@@ -67,188 +68,147 @@
     <ErrorBanner error={scanError} />
   {/if}
 
-  <div class="card stack">
-    <h2>Your sensor</h2>
-    {#if remembered}
-      <div class="row remembered">
-        <div class="stack tight">
-          <p class="name">{remembered.name}</p>
-          <p class="muted mono">{remembered.id}</p>
-        </div>
-        <span class="spacer"></span>
-        {#if s.target?.id === remembered.id && s.state !== "idle"}
-          <StatusChip status={connectionStatus(s)} />
-          <button class="btn" onclick={() => app.run((a) => a.disconnect())}>Disconnect</button>
-        {:else}
-          <button class="btn primary" onclick={() => app.run((a) => a.connect(remembered.id, remembered.name))}>Connect</button>
-        {/if}
-        <button class="btn ghost danger" onclick={() => app.run((a) => a.forget())}>Forget</button>
-      </div>
-      <Toggle
-        label="Connect automatically on launch"
-        hint="KittyTooth reconnects by itself whenever the sensor drops out, until you press Disconnect."
-        checked={app.config.device.auto_connect}
-        onchange={(v) => app.updateConfig((c) => (c.device.auto_connect = v))}
-      />
-    {:else}
-      <p class="muted">No sensor remembered yet. Pick one below; KittyTooth will remember it and reconnect automatically.</p>
-    {/if}
-  </div>
-
-  <div class="card stack">
-    <div class="row">
-      <h2>Nearby</h2>
-      <span class="spacer"></span>
-      <Toggle
-        label="Show all devices"
-        checked={app.config.device.show_all_devices}
-        onchange={(v) => app.updateConfig((c) => (c.device.show_all_devices = v))}
-      />
-    </div>
-    {#if app.devices.length === 0}
-      <div class="empty muted">
-        {#if s.scanning}
-          Looking for heart rate sensors... Wet your strap's electrodes and put it on, or turn on "HR broadcast" on your watch.
-        {:else}
-          Press Scan to look for sensors.
-        {/if}
-      </div>
-    {:else}
-      <ul class="list" aria-label="Nearby devices">
-        {#each app.devices as d (d.id)}
-          <li class="item" class:dim={!d.has_hr_service}>
-            <span class="kind" aria-hidden="true">{d.has_hr_service ? "♥" : "•"}</span>
-            <div class="info">
-              <p class="name">
-                {d.name}
-                {#if d.demo}<span class="tag">demo</span>{/if}
-                {#if !d.has_hr_service}<span class="tag plain">no heart rate</span>{/if}
-              </p>
-              <p class="muted small tabular">
-                {rssiLabel(d.rssi)}{d.rssi != null ? ` · ${d.rssi} dBm` : ""} · seen {timeAgo(d.last_seen_ms, now)}
-              </p>
-            </div>
-            <RssiBars rssi={d.rssi} />
-            {#if busyWith === d.id}
-              <button class="btn small" onclick={() => app.run((a) => a.disconnect())}>Disconnect</button>
+  <div class="section">
+    <h2 class="section-label">Your sensor</h2>
+    <div class="hairlist">
+      {#if remembered}
+        <div class="srow">
+          <div class="stext">
+            <p class="slabel">{remembered.name}</p>
+            <p class="shelp mono">{remembered.id}</p>
+          </div>
+          <div class="sctrl">
+            {#if s.target?.id === remembered.id && s.state !== "idle"}
+              <StatusChip status={connectionStatus(s)} />
+              <button class="btn" onclick={() => app.run((a) => a.disconnect())}>Disconnect</button>
             {:else}
-              <button
-                class="btn small"
-                class:primary={d.has_hr_service}
-                disabled={!d.has_hr_service}
-                aria-label="Connect to {d.name}"
-                onclick={() => connect(d)}>Connect</button
+              <button class="btn primary" onclick={() => app.run((a) => a.connect(remembered.id, remembered.name))}
+                >Connect</button
               >
             {/if}
+            <button class="btn quiet" onclick={() => app.run((a) => a.forget())}>Forget</button>
+          </div>
+        </div>
+        <Toggle
+          label="Connect automatically on launch"
+          hint="Reconnects on its own whenever the sensor drops out, until you press Disconnect."
+          checked={app.config.device.auto_connect}
+          onchange={(v) => app.updateConfig((c) => (c.device.auto_connect = v))}
+        />
+      {:else}
+        <div class="srow">
+          <div class="stext">
+            <p class="slabel">No sensor remembered yet</p>
+            <p class="shelp">Pick one below. KittyTooth remembers it and reconnects automatically.</p>
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-label">Nearby <span class="spacer"></span><span>{app.devices.length} found</span></h2>
+    {#if app.devices.length === 0}
+      <div class="raised">
+        <p class="shelp">
+          {#if s.scanning}
+            Looking for sensors. Wet your strap's electrodes and put it on, or turn on heart rate broadcast on your watch.
+          {:else}
+            Press Scan to look for sensors.
+          {/if}
+        </p>
+      </div>
+    {:else}
+      <ul class="hairlist" aria-label="Nearby devices">
+        {#each app.devices as d (d.id)}
+          <li class="srow dev" class:dim={!d.has_hr_service}>
+            <div class="stext">
+              <p class="slabel">
+                {d.name}
+                {#if d.demo}<span class="tag neutral">demo</span>{/if}
+                {#if !d.has_hr_service}<span class="tag neutral">no heart rate</span>{/if}
+              </p>
+              <p class="shelp mono">
+                {d.rssi != null ? `${d.rssi} dBm` : "signal unknown"} · seen {timeAgo(d.last_seen_ms, now)}
+              </p>
+            </div>
+            <div class="sctrl">
+              <RssiBars rssi={d.rssi} />
+              {#if busyWith === d.id}
+                <button class="btn small" onclick={() => app.run((a) => a.disconnect())}>Disconnect</button>
+              {:else}
+                <button
+                  class="btn small"
+                  class:primary={d.has_hr_service}
+                  disabled={!d.has_hr_service}
+                  aria-label="Connect to {d.name}"
+                  onclick={() => connect(d)}>Connect</button
+                >
+              {/if}
+            </div>
           </li>
         {/each}
       </ul>
     {/if}
   </div>
 
-  <div class="card stack">
-    <Toggle
-      label="Show demo sensor"
-      hint="A simulated strap for trying KittyTooth and testing avatars without hardware."
-      checked={app.config.device.demo_device}
-      onchange={(v) => app.updateConfig((c) => (c.device.demo_device = v))}
-    />
+  <div class="section">
+    <h2 class="section-label">Options</h2>
+    <div class="hairlist">
+      <Toggle
+        label="Show all devices"
+        hint="Include Bluetooth devices that don't advertise a heart rate service."
+        checked={app.config.device.show_all_devices}
+        onchange={(v) => app.updateConfig((c) => (c.device.show_all_devices = v))}
+      />
+      <Toggle
+        label="Show demo sensor"
+        hint="A simulated strap for trying KittyTooth and testing avatars without hardware."
+        checked={app.config.device.demo_device}
+        onchange={(v) => app.updateConfig((c) => (c.device.demo_device = v))}
+      />
+    </div>
   </div>
 </section>
 
 <style>
-  .devices {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-  }
   .scanning {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    font-size: 13px;
+    gap: var(--s2);
+    font-size: 12px;
+    color: var(--muted);
+    align-self: center;
   }
-  .spinner {
-    width: 14px;
-    height: 14px;
+  .pulse {
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    border: 2px solid var(--surface-3);
-    border-top-color: var(--accent);
-    animation: spin 0.9s linear infinite;
+    background: var(--pink);
+    animation: blink 1.2s ease-in-out infinite;
   }
-  @keyframes spin {
-    to {
-      transform: rotate(360deg);
+  @keyframes blink {
+    50% {
+      opacity: 0.25;
     }
   }
-  .tight {
-    gap: 2px;
+  .page-head .btn {
+    align-self: center;
   }
-  .name {
-    font-weight: 600;
-  }
-  .remembered {
-    flex-wrap: wrap;
-  }
-  .list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .item {
+  .slabel {
     display: flex;
     align-items: center;
-    gap: 14px;
-    padding: 10px 12px;
-    border-radius: var(--radius-sm);
-    background: var(--surface-2);
-    border: 1px solid transparent;
+    gap: var(--s2);
+    flex-wrap: wrap;
   }
-  .item:hover {
-    border-color: var(--border);
+  .dev {
+    min-height: 58px;
+    transition: background 120ms;
   }
-  .item.dim {
-    opacity: 0.65;
+  .dev:hover {
+    background: var(--slate-2);
   }
-  .kind {
-    width: 28px;
-    height: 28px;
-    display: grid;
-    place-items: center;
-    border-radius: 50%;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-size: 14px;
-  }
-  .dim .kind {
-    background: var(--surface-3);
+  .dev.dim .slabel {
     color: var(--muted);
-  }
-  .info {
-    flex: 1;
-    min-width: 0;
-  }
-  .small {
-    font-size: 12.5px;
-  }
-  .tag {
-    margin-left: 6px;
-    font-size: 11px;
-    font-weight: 650;
-    padding: 1px 6px;
-    border-radius: 6px;
-    background: var(--accent-soft);
-    color: var(--accent);
-  }
-  .tag.plain {
-    background: var(--surface-3);
-    color: var(--muted);
-  }
-  .empty {
-    padding: 24px 8px;
-    text-align: center;
   }
 </style>

@@ -277,6 +277,7 @@ pub enum Theme {
 #[serde(default)]
 pub struct UiConfig {
     pub theme: Theme,
+    /// A preset name ("pink", "peach", "lilac", "sky") or a custom "#rrggbb".
     pub accent: String,
     pub start_minimized: bool,
     /// Closing the main window hides it to the tray instead of quitting.
@@ -291,7 +292,7 @@ impl Default for UiConfig {
     fn default() -> Self {
         Self {
             theme: Theme::Dark,
-            accent: "#ff6fa8".into(),
+            accent: "pink".into(),
             start_minimized: false,
             close_to_tray: true,
             autostart: false,
@@ -360,7 +361,7 @@ impl Config {
                 }
             }
         }
-        if !is_hex_color(&self.ui.accent) {
+        if !is_hex_color(&self.ui.accent) && !ACCENT_PRESETS.contains(&self.ui.accent.as_str()) {
             self.ui.accent = UiConfig::default().accent;
         }
         if !matches!(self.ui.graph_range.as_str(), "60s" | "5m" | "session") {
@@ -372,6 +373,9 @@ impl Config {
         self
     }
 }
+
+/// Named accent presets (colors defined in the UI's tokens.css).
+pub const ACCENT_PRESETS: [&str; 4] = ["pink", "peach", "lilac", "sky"];
 
 fn is_hex_color(s: &str) -> bool {
     s.len() == 7 && s.starts_with('#') && s[1..].chars().all(|c| c.is_ascii_hexdigit())
@@ -641,7 +645,7 @@ mod tests {
         assert_eq!(c.osc.max_rate, 20);
         assert_eq!(c.osc.keepalive_ms, 200);
         assert_eq!(c.osc.chatbox.interval_secs, 2.0);
-        assert_eq!(c.ui.accent, "#ff6fa8");
+        assert_eq!(c.ui.accent, "pink");
         assert_eq!(c.osc.targets[1].port, 9000);
         assert_eq!(c.osc.targets[1].host, "127.0.0.1");
         assert_eq!(c.osc.targets[1].range, None);

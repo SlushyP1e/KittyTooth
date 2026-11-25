@@ -112,6 +112,31 @@ Findings that shaped the presets:
 * `src/lib/api/mock.ts` simulates the engine in the browser so `npm run dev`, Vitest,
   Playwright and screenshots work without Tauri.
 
+## Visual design ("Slushy")
+
+* Every colour lives in `src/tokens.css` as a custom property; nothing else may contain a hex,
+  `rgb()` or `hsl()` literal. `src/lib/no-hex.test.ts` enforces this and bans Inter, Roboto,
+  system-ui and Segoe UI as visible fonts. Derived tints use `color-mix()` on tokens.
+* Fonts are bundled woff2 (Bricolage Grotesque 500/700/800, Figtree 400/500/600, JetBrains Mono
+  400/500, all SIL OFL, licences next to the files). No network font requests. The OBS overlay
+  is served by the Rust core, so it embeds its own two fonts (`include_bytes!`) and serves them
+  at `/fonts/*`.
+* The light theme is derived from the dark tokens: same structure, slate ramp inverted to warm
+  near-whites, and the pink darkened to `#c0466f` so text and lines keep contrast on white.
+* Accent: `config.ui.accent` is a preset name (`pink`, `peach`, `lilac`, `sky`) or a custom
+  `#rrggbb`. Presets switch `data-accent`, whose values (per theme) live in tokens.css. A custom
+  hex sets `--pink` inline and derives `--pink-deep`/`--pink-soft` with `color-mix()`. Older
+  configs holding a hex keep working as a custom accent; the config default is now `pink`.
+* The heart is a monoline outline (pink stroke, 12% pink fill) so it reads as one line drawing;
+  the beat is a 1.08 scale with a fading 6px glow driven per beat by WAAPI. Under reduced motion
+  a 7px dot blinks instead.
+* Zones are distinguished by labels, not hues: one 4px track, current zone pink, lower zones pink
+  at 35%. The graph no longer has a coloured zone strip.
+* Toggles only for true on/off; every multi-option setting (smoothing, theme, preset, disconnect
+  behaviour, graph range) is a chip group or tab set with radiogroup semantics and arrow keys.
+* The tray icon draws charcoal digits on the accent colour (accent presets map to their dark
+  theme values in `tray_icon::accent_rgb`); idle is a slate tile with light digits.
+
 ## Stack deviations
 
 * None. Tauri 2, btleplug, rosc, tokio, serde, Svelte 5 + TS + Vite as specified. Additions:

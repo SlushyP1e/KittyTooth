@@ -4,7 +4,7 @@ use std::sync::Mutex;
 
 use kittytooth_core::config::Config;
 use kittytooth_core::engine::{ConnState, EngineHandle, Snapshot};
-use kittytooth_core::tray_icon::{parse_hex, render_bpm_icon, ICON_SIZE};
+use kittytooth_core::tray_icon::{accent_rgb, render_bpm_icon, ICON_SIZE};
 use tauri::image::Image;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -21,7 +21,7 @@ pub struct TrayItems {
 }
 
 fn icon(bpm: Option<u16>, accent: &str) -> Image<'static> {
-    let rgba = render_bpm_icon(bpm, parse_hex(accent).unwrap_or([255, 111, 168]));
+    let rgba = render_bpm_icon(bpm, accent_rgb(accent));
     Image::new_owned(rgba, ICON_SIZE, ICON_SIZE)
 }
 

@@ -1,24 +1,18 @@
 <script lang="ts">
-  let { size = 28 }: { size?: number } = $props();
+  let { size = 22 }: { size?: number } = $props();
 </script>
 
-<svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true" class="logo">
+<svg viewBox="0 0 24 24" width={size} height={size} aria-hidden="true">
   <path
-    d="M3.4 8.1 3.9 2.6l4.3 3.1A6.1 6.1 0 0 1 12 8c1.1-1.2 2.3-2 3.8-2.3l4.3-3.1.5 5.5c1.6 3-.1 6.2-2.6 8.6C16 18.6 12 21.2 12 21.2s-4-2.6-6-4.5C3.5 14.3 1.8 11.1 3.4 8.1z"
+    d="M4.2 8.4 4.6 3.4l3.7 2.7A5.6 5.6 0 0 1 12 8.3a5.6 5.6 0 0 1 3.7-2.2l3.7-2.7.4 5c1.5 2.8-.1 5.8-2.4 8-1.8 1.8-5.4 4.1-5.4 4.1s-3.6-2.3-5.4-4.1c-2.3-2.2-3.9-5.2-2.4-8z"
   />
-  <path class="ecg" d="M5.6 12.6h2.6l1.3-2.6 2 4.6 1.5-3.2.9 1.2h4.5" />
 </svg>
 
 <style>
-  .logo path:first-child {
-    fill: var(--accent);
-  }
-  .ecg {
+  path {
     fill: none;
-    stroke: var(--accent-text);
-    stroke-width: 1.3;
-    stroke-linecap: round;
+    stroke: var(--pink);
+    stroke-width: 1.8;
     stroke-linejoin: round;
-    opacity: 0.85;
   }
 </style>

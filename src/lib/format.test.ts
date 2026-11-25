@@ -8,12 +8,10 @@ import {
   isValidHost,
   isValidPort,
   normalizeOscAddress,
-  readableOn,
   renderChatbox,
   rssiBars,
   rssiLabel,
   timeAgo,
-  zoneColor,
   zoneName,
 } from "./format";
 import { emptySnapshot } from "./defaults";
@@ -53,7 +51,6 @@ describe("formatting", () => {
     expect(zoneName(3)).toBe("Aerobic");
     expect(zoneName(9)).toBe("Max");
     expect(zoneName(-2)).toBe("Rest");
-    expect(zoneColor(5)).toMatch(/^#/);
   });
 
   it("formats durations and clock times", () => {
@@ -88,12 +85,6 @@ describe("validation", () => {
     expect(isValidPort(90.5)).toBe(false);
   });
 
-  it("picks readable text color on accents", () => {
-    expect(readableOn("#ffffff")).toBe("#000000");
-    expect(readableOn("#ff6fa8")).toBe("#000000");
-    expect(readableOn("#1a1033")).toBe("#ffffff");
-    expect(readableOn("nope")).toBe("#ffffff");
-  });
 });
 
 describe("status and chatbox", () => {

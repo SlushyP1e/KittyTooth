@@ -4,52 +4,44 @@
   let { error, actions }: { error: UserError; actions?: Snippet } = $props();
 </script>
 
-<div class="banner" role="alert">
-  <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" class="icon">
-    <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2" />
-    <path d="M12 7v6M12 16.5v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" />
-  </svg>
+<div class="err" role="alert">
   <div class="body">
     <p class="title">{error.title}</p>
     <p class="msg">{error.message}</p>
-    <p class="fix"><strong>Try this:</strong> {error.fix}</p>
+    <p class="fix">Try this: {error.fix}</p>
   </div>
   {#if actions}<div class="actions">{@render actions()}</div>{/if}
 </div>
 
 <style>
-  .banner {
+  .err {
     display: flex;
-    gap: 12px;
-    align-items: flex-start;
-    padding: 14px 16px;
-    border-radius: var(--radius);
-    border: 1px solid color-mix(in srgb, var(--error) 40%, var(--border));
-    background: color-mix(in srgb, var(--error) 9%, var(--surface));
-  }
-  .icon {
-    color: var(--error);
-    flex: none;
-    margin-top: 1px;
+    gap: var(--s4);
+    align-items: center;
+    padding: var(--s3) var(--s4);
+    border-radius: var(--r-row);
+    background: var(--slate-2);
+    box-shadow: inset 2px 0 0 var(--red);
   }
   .body {
     flex: 1;
     display: flex;
     flex-direction: column;
-    gap: 3px;
+    gap: 2px;
   }
   .title {
-    font-weight: 650;
+    color: var(--text);
+    font-weight: 600;
   }
   .msg {
-    color: var(--text);
+    color: var(--body);
   }
   .fix {
     color: var(--muted);
+    font-size: 12.5px;
   }
   .actions {
     display: flex;
-    gap: 8px;
-    align-self: center;
+    gap: var(--s2);
   }
 </style>

@@ -7,64 +7,67 @@
   const live = $derived(s.data_valid || s.test_sweep);
 </script>
 
-<!-- Compact always-on-top window: drag anywhere, double-click to open the main window. -->
-<div
-  class="mini"
-  role="presentation"
-  data-tauri-drag-region
-  ondblclick={() => app.run((a) => a.showMain())}
->
-  <div data-tauri-drag-region class="heart">
-    <Heart beat={app.beatCount} interval={app.beatInterval} active={live} size={56} label="Heartbeat" />
+<!-- Compact window: drag anywhere, double-click to open the main window. -->
+<div class="mini" role="presentation" data-tauri-drag-region ondblclick={() => app.run((a) => a.showMain())}>
+  <div class="pill" data-tauri-drag-region>
+    <Heart beat={app.beatCount} active={live} size={40} label="Heartbeat" />
+    <span class="num tabular" data-tauri-drag-region data-testid="mini-bpm">{live ? formatBpm(s.bpm) : "--"}</span>
+    <span class="unit mono" data-tauri-drag-region>bpm</span>
   </div>
-  <div data-tauri-drag-region class="num tabular" data-testid="mini-bpm">
-    {live ? formatBpm(s.bpm) : "--"}<span class="unit">bpm</span>
-  </div>
-  <button class="close" aria-label="Close mini window" onclick={() => app.run((a) => a.closeMini())}>✕</button>
+  <button class="close" aria-label="Close mini window" onclick={() => app.run((a) => a.closeMini())}>
+    <svg viewBox="0 0 12 12" width="9" height="9" aria-hidden="true"
+      ><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg
+    >
+  </button>
 </div>
 
 <style>
   .mini {
     position: relative;
     height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 0 16px;
-    border-radius: 18px;
-    background: color-mix(in srgb, var(--surface) 88%, transparent);
-    border: 1px solid var(--border);
+    display: grid;
+    place-items: center;
     user-select: none;
     cursor: grab;
   }
+  .pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px 10px 14px;
+    border-radius: var(--r-panel);
+    background: color-mix(in srgb, var(--slate-0) 80%, transparent);
+  }
   .num {
-    font-family: var(--font-display);
-    font-size: 46px;
-    font-weight: 700;
+    font-family: var(--display);
+    font-weight: 800;
+    font-size: 44px;
+    line-height: 1;
     letter-spacing: -0.03em;
-    min-width: 3ch;
+    color: var(--text);
+    min-width: 2.4ch;
   }
   .unit {
-    font-size: 14px;
+    font-size: 12px;
     color: var(--muted);
-    margin-left: 4px;
-    font-weight: 600;
+    align-self: flex-end;
+    margin-bottom: 6px;
   }
   .close {
     position: absolute;
     top: 6px;
-    right: 8px;
+    right: 6px;
+    width: 20px;
+    height: 20px;
+    display: grid;
+    place-items: center;
     border: 0;
-    background: transparent;
+    border-radius: var(--r-pill);
+    background: var(--slate-2);
     color: var(--muted);
-    font-size: 12px;
     cursor: pointer;
     opacity: 0;
-    transition: opacity 0.15s;
-    border-radius: 6px;
-    width: 22px;
-    height: 22px;
+    transition: opacity 120ms;
   }
   .mini:hover .close,
   .close:focus-visible {

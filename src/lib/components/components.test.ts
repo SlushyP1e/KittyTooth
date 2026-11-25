@@ -1,10 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render } from "@testing-library/svelte";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render } from "@testing-library/svelte";
 import StatusChip from "./StatusChip.svelte";
 import Toggle from "./Toggle.svelte";
-import Segmented from "./Segmented.svelte";
+import Choice from "./Choice.svelte";
 import ZoneBand from "./ZoneBand.svelte";
 import ErrorBanner from "./ErrorBanner.svelte";
+
+afterEach(() => cleanup());
 
 describe("components", () => {
   it("StatusChip announces its label", () => {
@@ -21,9 +23,9 @@ describe("components", () => {
     expect(onchange).toHaveBeenCalledWith(true);
   });
 
-  it("Segmented supports arrow keys", async () => {
+  it("Choice supports arrow keys", async () => {
     const onchange = vi.fn();
-    const { getAllByRole } = render(Segmented, {
+    const { getAllByRole } = render(Choice, {
       label: "Range",
       value: "60s",
       options: [
@@ -48,7 +50,7 @@ describe("components", () => {
       active: true,
     });
     expect(getByRole("meter").getAttribute("aria-valuenow")).toBe("3");
-    expect(getByText(/Aerobic/)).toBeTruthy();
+    expect(getByText(/aerobic/)).toBeTruthy();
   });
 
   it("ErrorBanner shows title, message and fix", () => {
@@ -58,5 +60,21 @@ describe("components", () => {
     const t = getByRole("alert").textContent ?? "";
     expect(t).toContain("Bluetooth is turned off");
     expect(t).toContain("Turn it on.");
+  });
+});
+
+describe("Choice tabs variant", () => {
+  it("renders underlined tabs", () => {
+    const { getAllByRole } = render(Choice, {
+      label: "Range",
+      variant: "tabs",
+      value: "a",
+      options: [
+        { value: "a", label: "A" },
+        { value: "b", label: "B" },
+      ],
+      onchange: () => {},
+    });
+    expect(getAllByRole("radio")[0].className).toContain("tab");
   });
 });

@@ -1,9 +1,12 @@
 <script lang="ts">
+  // A true on/off setting. Renders the standard settings row (label + help left, switch right),
+  // or just the switch with `bare`.
   let {
     checked = false,
     label,
     hint = "",
     disabled = false,
+    bare = false,
     onchange,
     id = `t-${Math.random().toString(36).slice(2, 9)}`,
   }: {
@@ -11,44 +14,45 @@
     label: string;
     hint?: string;
     disabled?: boolean;
+    bare?: boolean;
     onchange: (v: boolean) => void;
     id?: string;
   } = $props();
 </script>
 
-<div class="toggle-row" class:disabled>
-  <div class="text">
-    <label for={id}>{label}</label>
-    {#if hint}<p class="hint" id="{id}-hint">{hint}</p>{/if}
-  </div>
+{#snippet sw()}
   <button
     {id}
     type="button"
     role="switch"
     aria-checked={checked}
     aria-label={label}
-    aria-describedby={hint ? `${id}-hint` : undefined}
+    aria-describedby={hint && !bare ? `${id}-hint` : undefined}
     {disabled}
     class="switch"
     onclick={() => onchange(!checked)}
   >
     <span class="knob"></span>
   </button>
-</div>
+{/snippet}
+
+{#if bare}
+  {@render sw()}
+{:else}
+  <div class="srow" class:disabled>
+    <div class="stext">
+      <label class="slabel" for={id}>{label}</label>
+      {#if hint}<p class="shelp" id="{id}-hint">{hint}</p>{/if}
+    </div>
+    <div class="sctrl">{@render sw()}</div>
+  </div>
+{/if}
 
 <style>
-  .toggle-row {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-    justify-content: space-between;
-    min-height: 34px;
-  }
-  .toggle-row.disabled {
+  .disabled {
     opacity: 0.55;
   }
   label {
-    font-weight: 560;
     cursor: pointer;
   }
   .switch {
@@ -56,31 +60,32 @@
     appearance: none;
     position: relative;
     width: 40px;
-    height: 23px;
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: var(--surface-3);
+    height: 22px;
+    border-radius: var(--r-pill);
+    border: 0;
+    background: var(--slate-3);
     cursor: pointer;
-    transition: background 0.18s;
+    transition: background 220ms;
     padding: 0;
   }
   .switch[aria-checked="true"] {
-    background: var(--accent);
-    border-color: transparent;
+    background: var(--pink-deep);
   }
   .knob {
     position: absolute;
-    top: 2px;
-    left: 2px;
-    width: 17px;
-    height: 17px;
+    top: 3px;
+    left: 3px;
+    width: 16px;
+    height: 16px;
     border-radius: 50%;
-    background: #fff;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
-    transition: transform 0.18s;
+    background: var(--muted);
+    transition:
+      transform 220ms var(--spring),
+      background 220ms;
   }
   .switch[aria-checked="true"] .knob {
-    transform: translateX(17px);
+    transform: translateX(18px);
+    background: var(--knob-on);
   }
   .switch:disabled {
     cursor: not-allowed;

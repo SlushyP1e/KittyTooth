@@ -20,6 +20,10 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
 <td><img src="docs/screenshots/live-light.png" alt="Light theme"></td>
 <td><img src="docs/screenshots/settings.png" alt="Settings screen"></td>
 </tr>
+<tr>
+<td><img src="docs/screenshots/osc-log.png" alt="OSC live log"></td>
+<td><img src="docs/screenshots/overlay-pill.png" alt="OBS overlay with pill backing"></td>
+</tr>
 </table>
 
 <sub>Screenshots are generated automatically by Playwright against the built-in demo sensor

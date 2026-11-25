@@ -3,7 +3,7 @@
   import { app } from "../stores/app.svelte";
   import TargetCard from "../components/TargetCard.svelte";
   import Toggle from "../components/Toggle.svelte";
-  import Segmented from "../components/Segmented.svelte";
+  import Choice from "../components/Choice.svelte";
   import { formatClock, renderChatbox } from "../format";
   import { defaultTarget } from "../defaults";
   import type { DisconnectBehavior, OscLogEntry } from "../types";
@@ -13,6 +13,16 @@
   let log = $state<OscLogEntry[]>([]);
   let paused = $state(false);
   const TOKENS = ["{hr}", "{heart}", "{min}", "{avg}", "{max}", "{hrv}", "{zone}", "{battery}"];
+
+  const subtitle = $derived(
+    !app.config.osc.oscquery
+      ? "OSCQuery is off, sending to the manual ports below"
+      : s.vrchat
+        ? `VRChat found via OSCQuery on ${s.vrchat.ip}:${s.vrchat.port}${s.vrchat.local ? " (this PC)" : ""}`
+        : s.oscquery.error
+          ? "OSCQuery discovery unavailable, using the manual ports below"
+          : "Looking for VRChat; until it's found, KittyTooth uses the manual ports",
+  );
 
   onMount(() => {
     let alive = true;
@@ -44,160 +54,191 @@
   function insertToken(tok: string) {
     app.updateConfig((c) => (c.osc.chatbox.template = (c.osc.chatbox.template + " " + tok).trim().slice(0, 144)));
   }
+
+  function shortAddr(a: string) {
+    return a.startsWith("/avatar/parameters/") ? a.slice("/avatar/parameters/".length) : a;
+  }
 </script>
 
-<section class="osc" aria-labelledby="osc-title">
-  <header class="row">
-    <h1 id="osc-title">OSC output</h1>
-    <span class="spacer"></span>
+<section class="page" aria-labelledby="osc-title">
+  <header class="page-head">
+    <div class="titles">
+      <h1 id="osc-title" class="page-title">OSC output</h1>
+      <p class="subtitle" role="status">{subtitle}</p>
+    </div>
     <button
       class="btn primary"
       onclick={() => app.run((a) => a.testSweep(!s.test_sweep))}
       aria-pressed={s.test_sweep}
-      title="Sends 60 → 180 → 60 bpm with beats over 16 seconds so you can check your avatar without wearing the strap"
+      title="Sends 60 to 180 to 60 bpm with beats over 16 seconds, so you can check your avatar without the strap"
     >
       {s.test_sweep ? "Stop test" : "Send test sweep"}
     </button>
   </header>
 
-  <div class="card discovery row" role="status">
-    <span class="dot" class:on={!!s.vrchat}></span>
-    {#if !app.config.osc.oscquery}
-      <p>OSCQuery is off. Sending to the manual ports below.</p>
-    {:else if s.vrchat}
-      <p>
-        VRChat found via OSCQuery on <span class="mono">{s.vrchat.ip}:{s.vrchat.port}</span>{s.vrchat.local ? " (this PC)" : ""}.
-      </p>
-    {:else if s.oscquery.error}
-      <p>OSCQuery discovery unavailable ({s.oscquery.error}). Using the manual ports below.</p>
-    {:else}
-      <p class="muted">Looking for VRChat... Until it's found, KittyTooth sends to the manual ports below.</p>
-    {/if}
-    <span class="spacer"></span>
-    <Toggle
-      label="OSCQuery"
-      checked={app.config.osc.oscquery}
-      onchange={(v) => app.updateConfig((c) => (c.osc.oscquery = v))}
-      id="oscq-global"
-    />
+  <div class="section">
+    <h2 class="section-label">Discovery</h2>
+    <div class="hairlist">
+      <Toggle
+        id="oscq-global"
+        label="OSCQuery"
+        hint="Advertise KittyTooth and find VRChat's OSC port automatically."
+        checked={app.config.osc.oscquery}
+        onchange={(v) => app.updateConfig((c) => (c.osc.oscquery = v))}
+      />
+    </div>
   </div>
 
-  {#each app.config.osc.targets as t, i (t.id)}
-    <TargetCard target={t} index={i} status={s.targets.find((x) => x.id === t.id)} />
-  {/each}
-  <div><button class="btn" onclick={addTarget}>Add target</button></div>
+  <div class="section">
+    <h2 class="section-label">
+      Targets <span class="spacer"></span>
+      <button class="btn small" onclick={addTarget}>Add target</button>
+    </h2>
+    <div class="targets">
+      {#each app.config.osc.targets as t, i (t.id)}
+        <TargetCard target={t} index={i} status={s.targets.find((x) => x.id === t.id)} />
+      {/each}
+    </div>
+  </div>
 
-  <div class="card stack">
-    <h2>Sending</h2>
-    <div class="grid3">
-      <label class="field">
-        <span>Keepalive (ms, 0 = off)</span>
-        <input
-          type="number"
-          min="0"
-          max="10000"
-          step="100"
-          value={app.config.osc.keepalive_ms}
-          onchange={(e) => app.updateConfig((c) => (c.osc.keepalive_ms = Math.max(0, Number(e.currentTarget.value) || 0)))}
-        />
-      </label>
-      <label class="field">
-        <span>Max messages / second / target</span>
-        <input
-          type="number"
-          min="1"
-          max="20"
-          value={app.config.osc.max_rate}
-          onchange={(e) =>
-            app.updateConfig((c) => (c.osc.max_rate = Math.min(20, Math.max(1, Number(e.currentTarget.value) || 20))))}
-        />
-      </label>
-      <div class="field">
-        <span>When the sensor disconnects</span>
-        <Segmented
-          label="When the sensor disconnects"
-          value={app.config.osc.on_disconnect}
-          options={[
-            { value: "hold_last", label: "Hold last value" },
-            { value: "send_zero", label: "Send 0" },
-          ]}
-          onchange={(v: DisconnectBehavior) => app.updateConfig((c) => (c.osc.on_disconnect = v))}
-        />
+  <div class="section">
+    <h2 class="section-label">Sending</h2>
+    <div class="hairlist">
+      <div class="srow">
+        <div class="stext">
+          <label class="slabel" for="keepalive">Keepalive</label>
+          <p class="shelp">Resend unchanged values this often, in ms. 0 turns it off.</p>
+        </div>
+        <div class="sctrl">
+          <input
+            id="keepalive"
+            type="number"
+            min="0"
+            max="10000"
+            step="100"
+            value={app.config.osc.keepalive_ms}
+            onchange={(e) => app.updateConfig((c) => (c.osc.keepalive_ms = Math.max(0, Number(e.currentTarget.value) || 0)))}
+          />
+        </div>
+      </div>
+      <div class="srow">
+        <div class="stext">
+          <label class="slabel" for="maxrate">Rate limit</label>
+          <p class="shelp">Messages per second per target, never more than 20.</p>
+        </div>
+        <div class="sctrl">
+          <input
+            id="maxrate"
+            type="number"
+            min="1"
+            max="20"
+            value={app.config.osc.max_rate}
+            onchange={(e) =>
+              app.updateConfig((c) => (c.osc.max_rate = Math.min(20, Math.max(1, Number(e.currentTarget.value) || 20))))}
+          />
+        </div>
+      </div>
+      <div class="srow">
+        <div class="stext">
+          <span class="slabel">When the sensor disconnects</span>
+          <p class="shelp">Connected=false is always sent once.</p>
+        </div>
+        <div class="sctrl">
+          <Choice
+            label="When the sensor disconnects"
+            value={app.config.osc.on_disconnect}
+            options={[
+              { value: "hold_last", label: "hold last" },
+              { value: "send_zero", label: "send 0" },
+            ]}
+            onchange={(v: DisconnectBehavior) => app.updateConfig((c) => (c.osc.on_disconnect = v))}
+          />
+        </div>
       </div>
     </div>
-    <p class="hint">Values are sent when they change, plus a keepalive. Connected=false is sent once on disconnect.</p>
   </div>
 
-  <div class="card stack">
-    <Toggle
-      label="VRChat chatbox"
-      hint="Shows your heart rate in the chatbox above your head. Sent at most every 2 seconds."
-      checked={cb.enabled}
-      onchange={(v) => app.updateConfig((c) => (c.osc.chatbox.enabled = v))}
-      id="chatbox-en"
-    />
-    {#if cb.enabled}
-      <label class="field">
-        <span>Template</span>
-        <input
-          type="text"
-          maxlength="144"
-          value={cb.template}
-          oninput={(e) => app.updateConfig((c) => (c.osc.chatbox.template = e.currentTarget.value))}
-        />
-      </label>
-      <div class="row tokens" aria-label="Insert token">
-        {#each TOKENS as tok (tok)}
-          <button class="btn small" onclick={() => insertToken(tok)}>{tok}</button>
-        {/each}
-      </div>
-      <p class="preview" aria-label="Chatbox preview">{renderChatbox(cb.template, s)}</p>
-      <div class="grid3">
-        <label class="field">
-          <span>Seconds between messages (min 2)</span>
+  <div class="section">
+    <h2 class="section-label">Chatbox</h2>
+    <div class="hairlist">
+      <Toggle
+        id="chatbox-en"
+        label="VRChat chatbox"
+        hint="Shows your heart rate above your head. Sent at most every 2 seconds."
+        checked={cb.enabled}
+        onchange={(v) => app.updateConfig((c) => (c.osc.chatbox.enabled = v))}
+      />
+      {#if cb.enabled}
+        <div class="srow stacked">
+          <div class="stext">
+            <label class="slabel" for="cb-template">Template</label>
+            <p class="shelp">Up to 144 characters. Click a token to add it.</p>
+          </div>
           <input
-            type="number"
-            min="2"
-            max="60"
-            step="0.5"
-            value={cb.interval_secs}
-            onchange={(e) =>
-              app.updateConfig((c) => (c.osc.chatbox.interval_secs = Math.max(2, Number(e.currentTarget.value) || 2)))}
+            id="cb-template"
+            class="mono"
+            type="text"
+            maxlength="144"
+            value={cb.template}
+            oninput={(e) => app.updateConfig((c) => (c.osc.chatbox.template = e.currentTarget.value))}
           />
-        </label>
+          <div class="chips" aria-label="Insert token">
+            {#each TOKENS as tok (tok)}
+              <button class="chip" onclick={() => insertToken(tok)}>{tok}</button>
+            {/each}
+          </div>
+          <p class="preview" aria-label="Chatbox preview">{renderChatbox(cb.template, s)}</p>
+        </div>
+        <div class="srow">
+          <div class="stext">
+            <label class="slabel" for="cb-interval">Interval</label>
+            <p class="shelp">Seconds between messages, minimum 2.</p>
+          </div>
+          <div class="sctrl">
+            <input
+              id="cb-interval"
+              type="number"
+              min="2"
+              max="60"
+              step="0.5"
+              value={cb.interval_secs}
+              onchange={(e) =>
+                app.updateConfig((c) => (c.osc.chatbox.interval_secs = Math.max(2, Number(e.currentTarget.value) || 2)))}
+            />
+          </div>
+        </div>
         <Toggle
-          label="Silent (no notification sound)"
+          id="chatbox-silent"
+          label="Silent"
+          hint="Send without the chatbox notification sound."
           checked={cb.silent}
           onchange={(v) => app.updateConfig((c) => (c.osc.chatbox.silent = v))}
-          id="chatbox-silent"
         />
-      </div>
-    {/if}
+      {/if}
+    </div>
   </div>
 
-  <div class="card stack">
-    <div class="row">
-      <h2>Live log</h2>
-      <span class="muted small">last 50 messages</span>
-      <span class="spacer"></span>
+  <div class="section">
+    <h2 class="section-label">
+      Live log <span class="muted">last 50</span><span class="spacer"></span>
       <button class="btn small" aria-pressed={paused} onclick={() => (paused = !paused)}>{paused ? "Resume" : "Pause"}</button>
-    </div>
+    </h2>
     <div class="log" role="log" aria-label="OSC messages sent">
       {#if log.length === 0}
-        <p class="muted empty">Nothing sent yet. Connect a sensor or press Send test sweep.</p>
+        <p class="shelp empty">Nothing sent yet. Connect a sensor or press Send test sweep.</p>
       {:else}
-        <table>
+        <table class="mono">
           <thead>
-            <tr><th>Time</th><th>Target</th><th>Address</th><th>Value</th><th>Type</th></tr>
+            <tr><th>time</th><th>target</th><th>address</th><th class="num">value</th><th>type</th></tr>
           </thead>
           <tbody>
             {#each log as e (e.seq)}
-              <tr class:test={e.test}>
-                <td class="mono tabular">{formatClock(e.t_ms)}</td>
+              <tr>
+                <td class="t">{formatClock(e.t_ms)}</td>
                 <td>{e.target}</td>
-                <td class="mono addr">{e.address}</td>
-                <td class="mono tabular">{e.value}</td>
-                <td class="muted">{e.kind}{e.test ? " · test" : ""}</td>
+                <td class="addr" title={e.address}>{shortAddr(e.address)}</td>
+                <td class="num">{e.value}</td>
+                <td><span class="tag neutral">{e.kind}</span>{#if e.test}<span class="tag">test</span>{/if}</td>
               </tr>
             {/each}
           </tbody>
@@ -208,84 +249,72 @@
 </section>
 
 <style>
-  .osc {
+  .page-head .btn {
+    align-self: center;
+  }
+  .targets {
     display: flex;
     flex-direction: column;
-    gap: 16px;
-  }
-  .discovery {
-    padding: 12px 16px;
-  }
-  .dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    background: var(--faint);
-    flex: none;
-  }
-  .dot.on {
-    background: var(--ok);
-    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent);
-  }
-  .grid3 {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-    align-items: end;
-  }
-  .tokens {
-    flex-wrap: wrap;
-    gap: 6px;
+    gap: var(--s4);
   }
   .preview {
-    padding: 10px 14px;
-    border-radius: 12px;
-    background: var(--surface-2);
-    font-weight: 560;
+    padding: var(--s3) var(--s4);
+    border-radius: var(--r-btn);
+    background: var(--slate-2);
+    color: var(--text);
     min-height: 40px;
   }
   .log {
-    max-height: 320px;
+    max-height: 340px;
     overflow: auto;
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border);
+    border-radius: var(--r-row);
+    border: 1px solid var(--slate-3);
   }
   table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12.5px;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
   }
   th {
     position: sticky;
     top: 0;
-    background: var(--surface-2);
+    background: var(--slate-1);
     text-align: left;
-    font-weight: 600;
+    font-weight: 500;
+    font-size: 11px;
+    letter-spacing: 0.04em;
     color: var(--muted);
-    padding: 7px 10px;
+    padding: var(--s2) var(--s3);
+    border-bottom: 1px solid var(--slate-3);
   }
   td {
-    padding: 5px 10px;
-    border-top: 1px solid var(--border);
+    padding: 5px var(--s3);
     white-space: nowrap;
+    color: var(--body);
+  }
+  tbody tr:nth-child(even) td {
+    background: color-mix(in srgb, var(--slate-2) 50%, transparent);
+  }
+  td.t {
+    color: var(--muted);
   }
   td.addr {
-    white-space: normal;
-    word-break: break-all;
+    color: var(--pink);
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
-  tr.test td {
-    color: var(--busy);
+  .num {
+    text-align: right;
+  }
+  td .tag {
+    height: 18px;
+    font-size: 10.5px;
+    margin-right: 4px;
   }
   .empty {
-    padding: 18px;
+    padding: var(--s5);
     text-align: center;
-  }
-  .small {
-    font-size: 12.5px;
-  }
-  @media (max-width: 900px) {
-    .grid3 {
-      grid-template-columns: 1fr;
-    }
   }
 </style>

@@ -5,23 +5,25 @@
 </script>
 
 <span class="rssi" title={rssi == null ? "Signal unknown" : `${rssi} dBm`}>
-  <svg viewBox="0 0 20 16" width="20" height="16" aria-hidden="true">
-    {#each [0, 1, 2, 3] as i (i)}
-      <rect x={i * 5} y={12 - i * 4} width="3.4" height={4 + i * 4} rx="1" class:on={i < bars} />
-    {/each}
-  </svg>
+  {#each [0, 1, 2, 3] as i (i)}
+    <span class="bar" class:on={i < bars} style:height="{5 + i * 3}px"></span>
+  {/each}
   <span class="sr-only">Signal {rssiLabel(rssi)}</span>
 </span>
 
 <style>
   .rssi {
     display: inline-flex;
-    align-items: center;
+    align-items: flex-end;
+    gap: 2px;
+    height: 14px;
   }
-  rect {
-    fill: var(--surface-3);
+  .bar {
+    width: 3px;
+    border-radius: 1px;
+    background: var(--slate-3);
   }
-  rect.on {
-    fill: var(--accent);
+  .bar.on {
+    background: var(--pink);
   }
 </style>

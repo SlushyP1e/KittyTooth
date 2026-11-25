@@ -17,6 +17,16 @@ const FONT: [[u8; 5]; 11] = [
     [0b000, 0b000, 0b111, 0b000, 0b000], // -
 ];
 
+/// Tray color for an accent setting: preset name or `#rrggbb` (mirrors the UI tokens).
+pub fn accent_rgb(accent: &str) -> [u8; 3] {
+    match accent {
+        "peach" => [0xff, 0xc6, 0xa5],
+        "lilac" => [0xd4, 0xb8, 0xff],
+        "sky" => [0xa8, 0xd1, 0xff],
+        other => parse_hex(other).unwrap_or([0xff, 0xad, 0xc6]),
+    }
+}
+
 /// Parses `#rrggbb`.
 pub fn parse_hex(s: &str) -> Option<[u8; 3]> {
     let s = s.strip_prefix('#')?;
@@ -32,7 +42,7 @@ pub fn render_bpm_icon(bpm: Option<u16>, accent: [u8; 3]) -> Vec<u8> {
     let n = ICON_SIZE as i32;
     let mut px = vec![0u8; (n * n * 4) as usize];
     let radius = 7i32;
-    let bg = if bpm.is_some() { accent } else { [110, 110, 120] };
+    let bg = if bpm.is_some() { accent } else { [0x2a, 0x2f, 0x3a] };
     // Rounded square background with 1px antialias-ish edge.
     for y in 0..n {
         for x in 0..n {
@@ -52,6 +62,12 @@ pub fn render_bpm_icon(bpm: Option<u16>, accent: [u8; 3]) -> Vec<u8> {
             }
         }
     }
+    // Charcoal digits on the pastel accent; light digits on the idle tile.
+    let fg = if bpm.is_some() {
+        [0x0e, 0x10, 0x14]
+    } else {
+        [0xe8, 0xe8, 0xed]
+    };
     let glyphs: Vec<usize> = match bpm {
         Some(v) => v
             .min(999)
@@ -81,7 +97,7 @@ pub fn render_bpm_icon(bpm: Option<u16>, accent: [u8; 3]) -> Vec<u8> {
                         let y = y0 + row as i32 * scale + dy;
                         if (0..n).contains(&x) && (0..n).contains(&y) {
                             let i = ((y * n + x) * 4) as usize;
-                            px[i..i + 4].copy_from_slice(&[255, 255, 255, 255]);
+                            px[i..i + 4].copy_from_slice(&[fg[0], fg[1], fg[2], 255]);
                         }
                     }
                 }
@@ -96,7 +112,10 @@ mod tests {
     use super::*;
 
     fn white_pixels(px: &[u8]) -> usize {
-        px.chunks(4).filter(|p| p == &[255, 255, 255, 255]).count()
+        // Counts digit pixels (charcoal on accent, light on idle).
+        px.chunks(4)
+            .filter(|p| p == &[0x0e, 0x10, 0x14, 255] || p == &[0xe8, 0xe8, 0xed, 255])
+            .count()
     }
 
     #[test]
@@ -118,5 +137,8 @@ mod tests {
         assert_eq!(parse_hex("#ff6fa8"), Some([255, 111, 168]));
         assert_eq!(parse_hex("ff6fa8"), None);
         assert_eq!(parse_hex("#zzzzzz"), None);
+        assert_eq!(accent_rgb("pink"), [0xff, 0xad, 0xc6]);
+        assert_eq!(accent_rgb("sky"), [0xa8, 0xd1, 0xff]);
+        assert_eq!(accent_rgb("#010203"), [1, 2, 3]);
     }
 }

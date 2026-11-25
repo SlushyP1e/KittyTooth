@@ -3,7 +3,7 @@
   import { app } from "./lib/stores/app.svelte";
   import { backend } from "./lib/api";
   import { applyTheme } from "./lib/theme";
-  import { connectionStatus, formatBpm } from "./lib/format";
+  import { formatBpm } from "./lib/format";
   import Logo from "./lib/components/Logo.svelte";
   import Toasts from "./lib/components/Toasts.svelte";
   import LiveView from "./lib/views/LiveView.svelte";
@@ -13,12 +13,7 @@
   import MiniView from "./lib/views/MiniView.svelte";
 
   type View = "live" | "devices" | "osc" | "settings" | "mini";
-  const VIEWS: { id: Exclude<View, "mini">; label: string; icon: string }[] = [
-    { id: "live", label: "Live", icon: "M3 12h4l2-5 4 10 2-5h6" },
-    { id: "devices", label: "Devices", icon: "M7 7l10 10-5 5V2l5 5L7 17" },
-    { id: "osc", label: "OSC", icon: "M4 12a8 8 0 0 1 16 0M7.5 12a4.5 4.5 0 0 1 9 0M12 12v8" },
-    { id: "settings", label: "Settings", icon: "M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0M14 4v4M8 10v4M16 16v4" },
-  ];
+  type Dot = "live" | "ok" | "warn" | "err" | "idle";
 
   function parseHash(): View {
     const h = location.hash.replace(/^#\/?/, "");
@@ -27,9 +22,33 @@
 
   let view = $state<View>(parseHash());
   const s = $derived(app.snapshot);
-  const status = $derived(connectionStatus(s));
   const live = $derived(s.data_valid || s.test_sweep);
   let mainEl: HTMLElement | undefined = $state();
+
+  const sensorDot = $derived<Dot>(
+    s.error && s.state === "reconnecting"
+      ? "err"
+      : live
+        ? "live"
+        : s.state === "connecting" || s.state === "reconnecting" || s.state === "no_data"
+          ? "warn"
+          : "idle",
+  );
+  const enabledTargets = $derived(app.config.osc.targets.filter((t) => t.enabled).length);
+  const groups = $derived([
+    {
+      label: "Sensor",
+      items: [
+        { id: "live", label: "Live", dot: sensorDot, count: null as number | null },
+        { id: "devices", label: "Devices", dot: s.device ? sensorDot : ("idle" as Dot), count: s.scanning ? app.devices.length : null },
+      ],
+    },
+    {
+      label: "Output",
+      items: [{ id: "osc", label: "OSC", dot: (live && enabledTargets ? "live" : "idle") as Dot, count: enabledTargets }],
+    },
+    { label: "App", items: [{ id: "settings", label: "Settings", dot: "idle" as Dot, count: null }] },
+  ]);
 
   function navigate(v: string) {
     location.hash = `#/${v}`;
@@ -64,49 +83,64 @@
 {#if view === "mini"}
   <MiniView />
 {:else}
-  <a class="skip" href="#main-content" onclick={(e) => { e.preventDefault(); mainEl?.focus(); }}>Skip to content</a>
+  <a
+    class="skip"
+    href="#main-content"
+    onclick={(e) => {
+      e.preventDefault();
+      mainEl?.focus();
+    }}>Skip to content</a
+  >
   <div class="shell">
     <nav class="sidebar" aria-label="Main">
       <div class="brand">
-        <Logo size={30} />
+        <Logo size={22} />
         <span class="brand-name">KittyTooth</span>
       </div>
-      <ul>
-        {#each VIEWS as v (v.id)}
-          <li>
-            <a href="#/{v.id}" class="nav-item" aria-current={view === v.id ? "page" : undefined}>
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                <path d={v.icon} fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-              </svg>
-              <span>{v.label}</span>
-            </a>
-          </li>
-        {/each}
-      </ul>
+      {#each groups as g (g.label)}
+        <div class="group">
+          <p class="glabel">{g.label}</p>
+          <ul>
+            {#each g.items as it (it.id)}
+              <li>
+                <a href="#/{it.id}" class="nav-item" aria-current={view === it.id ? "page" : undefined}>
+                  <span class="dot {it.dot}" aria-hidden="true"></span>
+                  <span class="nlabel">{it.label}</span>
+                  {#if it.count != null}<span class="count mono">{it.count}</span>{/if}
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/each}
       <div class="spacer"></div>
-      <a href="#/live" class="pulse-pill {status.tone}" aria-label="Current heart rate">
-        <span class="dot" aria-hidden="true"></span>
-        <span class="tabular">{live ? `${formatBpm(s.bpm)} bpm` : status.label}</span>
+      <a href="#/live" class="now" aria-label="Current heart rate">
+        <span class="now-bpm tabular">{live ? formatBpm(s.bpm) : "--"}</span>
+        <span class="now-unit mono">bpm</span>
       </a>
-      {#if app.isMock}
-        <p class="demo-note">Demo mode: simulated data</p>
-      {/if}
+      <p class="foot mono">{app.isMock ? "demo data" : `v${app.info?.version ?? ""}`}</p>
     </nav>
-    <main id="main-content" bind:this={mainEl} tabindex="-1">
-      <div class="content">
-        {#if !app.ready}
-          <p class="muted loading">Loading...</p>
-        {:else if view === "live"}
-          <LiveView {navigate} />
-        {:else if view === "devices"}
-          <DevicesView />
-        {:else if view === "osc"}
-          <OscView />
-        {:else if view === "settings"}
-          <SettingsView />
-        {/if}
-      </div>
-    </main>
+    <div class="main-wrap">
+      <main id="main-content" bind:this={mainEl} tabindex="-1">
+        <div class="content" class:wide={view === "live"}>
+          {#if !app.ready}
+            <p class="muted loading">Loading</p>
+          {:else}
+            {#key view}
+              {#if view === "live"}
+                <LiveView {navigate} />
+              {:else if view === "devices"}
+                <DevicesView />
+              {:else if view === "osc"}
+                <OscView />
+              {:else if view === "settings"}
+                <SettingsView />
+              {/if}
+            {/key}
+          {/if}
+        </div>
+      </main>
+    </div>
   </div>
   <Toasts />
 {/if}
@@ -114,28 +148,43 @@
 <style>
   .shell {
     display: grid;
-    grid-template-columns: 208px 1fr;
+    grid-template-columns: 200px 1fr;
     height: 100%;
+    background: var(--slate-0);
   }
   .sidebar {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 18px 12px;
-    border-right: 1px solid var(--border);
-    background: color-mix(in srgb, var(--surface) 55%, transparent);
+    gap: var(--s5);
+    padding: var(--s5) var(--s3) var(--s4);
+    border-right: 1px solid var(--slate-3);
+    background: var(--slate-0);
   }
   .brand {
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 4px 10px 18px;
+    padding: 0 var(--s2);
   }
   .brand-name {
-    font-family: var(--font-display);
+    font-family: var(--display);
     font-weight: 700;
-    font-size: 17px;
+    font-size: 18px;
+    color: var(--text);
     letter-spacing: -0.01em;
+  }
+  .group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .glabel {
+    padding: 0 var(--s2);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--muted);
   }
   ul {
     list-style: none;
@@ -148,72 +197,100 @@
   .nav-item {
     display: flex;
     align-items: center;
-    gap: 12px;
-    height: 38px;
-    padding: 0 12px;
-    border-radius: 10px;
-    color: var(--muted);
+    gap: 10px;
+    height: 34px;
+    padding: 0 var(--s2);
+    border-radius: var(--r-btn);
+    color: var(--body);
     text-decoration: none;
-    font-weight: 560;
+    font-weight: 500;
+    transition: background 120ms;
   }
   .nav-item:hover {
-    background: var(--surface-2);
-    color: var(--text);
+    background: var(--slate-2);
   }
   .nav-item[aria-current="page"] {
-    background: var(--accent-soft);
-    color: var(--text);
+    background: var(--pink-soft);
+    color: var(--pink);
   }
-  .nav-item[aria-current="page"] svg {
-    color: var(--accent);
-  }
-  .spacer {
+  .nlabel {
     flex: 1;
   }
-  .pulse-pill {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
-    border-radius: 12px;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    color: var(--text);
-    text-decoration: none;
-    font-weight: 600;
-    font-size: 13px;
-  }
-  .pulse-pill .dot {
-    width: 8px;
-    height: 8px;
+  .dot {
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
-    background: var(--faint);
+    background: var(--slate-3);
+    flex: none;
   }
-  .pulse-pill.ok .dot {
-    background: var(--ok);
+  .dot.live {
+    background: var(--pink);
+    box-shadow: 0 0 8px var(--pink);
   }
-  .pulse-pill.warn .dot {
-    background: var(--warn);
+  .dot.ok {
+    background: var(--green);
   }
-  .pulse-pill.error .dot {
-    background: var(--error);
+  .dot.warn {
+    background: var(--amber);
   }
-  .pulse-pill.busy .dot {
-    background: var(--busy);
+  .dot.err {
+    background: var(--red);
   }
-  .demo-note {
-    font-size: 11.5px;
-    color: var(--faint);
-    padding: 4px 12px 0;
+  .count {
+    min-width: 20px;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-pill);
+    background: var(--pink);
+    color: var(--slate-0);
+    font-size: 11px;
+    font-weight: 500;
+    display: inline-grid;
+    place-items: center;
+  }
+  .now {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 0 var(--s2);
+    text-decoration: none;
+  }
+  .now-bpm {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 26px;
+    color: var(--text);
+    letter-spacing: -0.02em;
+  }
+  .now-unit,
+  .foot {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .foot {
+    padding: 0 var(--s2);
+  }
+  .main-wrap {
+    padding: 10px;
+    min-width: 0;
+    min-height: 0;
   }
   main {
+    height: 100%;
     overflow: auto;
-    outline: none;
+    background: var(--slate-1);
+    border-radius: var(--r-panel);
+  }
+  main:focus-visible {
+    outline-offset: -2px;
   }
   .content {
-    max-width: 1040px;
+    max-width: 860px;
     margin: 0 auto;
-    padding: 24px 28px 48px;
+    padding: var(--s6) var(--s6) 56px;
+  }
+  .content.wide {
+    max-width: 1000px;
   }
   .loading {
     padding: 40px;
@@ -223,10 +300,10 @@
     left: 12px;
     top: -60px;
     z-index: 100;
-    padding: 8px 14px;
-    border-radius: 10px;
-    background: var(--accent);
-    color: var(--accent-text);
+    padding: var(--s2) var(--s4);
+    border-radius: var(--r-btn);
+    background: var(--pink);
+    color: var(--on-pink);
     font-weight: 600;
   }
   .skip:focus {
@@ -234,27 +311,10 @@
   }
   @media (max-width: 860px) {
     .shell {
-      grid-template-columns: 64px 1fr;
-    }
-    .brand-name,
-    .nav-item span,
-    .pulse-pill span:not(.dot),
-    .demo-note {
-      display: none;
-    }
-    .nav-item {
-      justify-content: center;
-      padding: 0;
-    }
-    .brand {
-      justify-content: center;
-      padding: 4px 0 18px;
-    }
-    .pulse-pill {
-      justify-content: center;
+      grid-template-columns: 168px 1fr;
     }
     .content {
-      padding: 18px 16px 40px;
+      padding: var(--s5) var(--s5) 48px;
     }
   }
 </style>

@@ -2,8 +2,7 @@
   import { onMount } from "svelte";
   import type { HistoryBuffer } from "../stores/history";
   import type { GraphRange } from "../types";
-  import { ZONE_COLORS } from "../format";
-  import { prefersReducedMotion } from "../theme";
+  import { cssVar, prefersReducedMotion, withAlpha } from "../theme";
 
   // Live heart rate graph on a canvas. Scrolls smoothly at display rate while data is live;
   // redraws only on change otherwise (and under reduced motion). No allocations per frame
@@ -35,20 +34,18 @@
   let dirty = true;
   let yLo = 50;
   let yHi = 150;
-  let beatAt = 0;
   let ariaLabel = $state("Heart rate graph");
   const reduced = prefersReducedMotion();
-  const colors = { accent: "#ff6fa8", grid: "rgba(255,255,255,.06)", text: "#a99fb8", surface: "#1c1924" };
+  const colors = { accent: "", grid: "", text: "", surface: "" };
 
   const RANGE_MS: Record<GraphRange, number> = { "60s": 60_000, "5m": 300_000, session: 0 };
-  const PAD = { l: 34, r: 12, t: 10, b: 22 };
+  const PAD = { l: 34, r: 14, t: 10, b: 24 };
 
   function readColors() {
-    const cs = getComputedStyle(document.documentElement);
-    colors.accent = cs.getPropertyValue("--accent").trim() || colors.accent;
-    colors.grid = cs.getPropertyValue("--grid").trim() || colors.grid;
-    colors.text = cs.getPropertyValue("--faint").trim() || colors.text;
-    colors.surface = cs.getPropertyValue("--surface").trim() || colors.surface;
+    colors.accent = cssVar("--pink");
+    colors.grid = cssVar("--slate-3");
+    colors.text = cssVar("--muted");
+    colors.surface = cssVar("--slate-1");
     dirty = true;
   }
 
@@ -78,18 +75,10 @@
 
   $effect(() => {
     if (beat > 0) {
-      beatAt = performance.now();
       dirty = true;
       ensureLoop();
     }
   });
-
-  function hexToRgba(hex: string, a: number): string {
-    const m = /^#([0-9a-f]{6})$/i.exec(hex);
-    if (!m) return `rgba(255,111,168,${a})`;
-    const n = parseInt(m[1], 16);
-    return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
-  }
 
   function fmtAgo(ms: number): string {
     const s = Math.round(ms / 1000);
@@ -141,26 +130,12 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
 
-    // Zone strip along the y axis.
-    const bounds = [0, ...thresholds.map((p) => (maxHr * p) / 100), 999];
-    for (let z = 0; z < 6; z++) {
-      const a = Math.max(bounds[z], yLo);
-      const b = Math.min(bounds[z + 1], yHi);
-      if (b <= a) continue;
-      ctx.fillStyle = ZONE_COLORS[z];
-      ctx.globalAlpha = 0.85;
-      ctx.fillRect(PAD.l - 6, Y(b), 3, Y(a) - Y(b));
-      ctx.globalAlpha = 0.045;
-      ctx.fillRect(PAD.l, Y(b), plotW, Y(a) - Y(b));
-    }
-    ctx.globalAlpha = 1;
-
     // Grid + labels.
     const step = yHi - yLo > 100 ? 40 : yHi - yLo > 60 ? 20 : 10;
-    ctx.strokeStyle = colors.grid;
+    ctx.strokeStyle = withAlpha(colors.grid, 0.5);
     ctx.lineWidth = 1;
     ctx.fillStyle = colors.text;
-    ctx.font = "11px 'Segoe UI', system-ui, sans-serif";
+    ctx.font = "11px 'JetBrains Mono', monospace";
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
     for (let v = Math.ceil(yLo / step) * step; v <= yHi; v += step) {
@@ -222,8 +197,8 @@
       if (pts.length) segments.push(pts);
 
       const grad = ctx.createLinearGradient(0, PAD.t, 0, PAD.t + plotH);
-      grad.addColorStop(0, hexToRgba(colors.accent, 0.3));
-      grad.addColorStop(1, hexToRgba(colors.accent, 0));
+      grad.addColorStop(0, withAlpha(colors.accent, 0.1));
+      grad.addColorStop(1, withAlpha(colors.accent, 0));
 
       ctx.save();
       ctx.beginPath();
@@ -254,36 +229,30 @@
         ctx.beginPath();
         trace();
         ctx.strokeStyle = colors.accent;
-        ctx.lineWidth = 2.2;
+        ctx.lineWidth = 1.75;
         ctx.lineJoin = "round";
         ctx.lineCap = "round";
         ctx.stroke();
       }
       ctx.restore();
 
-      // Live head dot with a ring that expands on each beat.
+      // Live point: 6px dot with a slow pulse ring.
       const lastSeg = segments[segments.length - 1];
       if (live && lastSeg && lastSeg.length >= 2) {
         const hx = lastSeg[lastSeg.length - 2];
         const hy = lastSeg[lastSeg.length - 1];
-        const age = nowPerf - beatAt;
-        if (!reduced && age < 500) {
-          const p = age / 500;
+        if (!reduced) {
+          const p = (nowPerf % 1800) / 1800;
           ctx.beginPath();
-          ctx.arc(hx, hy, 4 + p * 10, 0, Math.PI * 2);
-          ctx.strokeStyle = colors.accent;
-          ctx.globalAlpha = 1 - p;
-          ctx.lineWidth = 2;
+          ctx.arc(hx, hy, 3 + p * 9, 0, Math.PI * 2);
+          ctx.strokeStyle = withAlpha(colors.accent, 0.5 * (1 - p));
+          ctx.lineWidth = 1.5;
           ctx.stroke();
-          ctx.globalAlpha = 1;
         }
         ctx.beginPath();
-        ctx.arc(hx, hy, 4.5, 0, Math.PI * 2);
+        ctx.arc(hx, hy, 3, 0, Math.PI * 2);
         ctx.fillStyle = colors.accent;
         ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = colors.surface;
-        ctx.stroke();
       }
       if (ext) {
         ariaLabel = `Heart rate graph, ${range === "session" ? "whole session" : range === "5m" ? "last 5 minutes" : "last 60 seconds"}, between ${Math.round(ext[0])} and ${Math.round(ext[1])} bpm`;
@@ -293,7 +262,7 @@
       ctx.textAlign = "center";
       ctx.fillText("Waiting for heart rate data", PAD.l + plotW / 2, PAD.t + plotH / 2);
     }
-    dirty = settling || (live && !reduced) || nowPerf - beatAt < 520;
+    dirty = settling || (live && !reduced);
   }
 
   function frame(ts: number) {
@@ -326,6 +295,7 @@
       ensureLoop();
     };
     document.addEventListener("visibilitychange", onVis);
+    void document.fonts?.ready.then(onVis);
     // Even when idle (not live), keep the time axis honest once a second.
     const slow = setInterval(() => {
       dirty = true;

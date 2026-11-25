@@ -38,7 +38,7 @@ export function defaultConfig(): Config {
     },
     ui: {
       theme: "dark",
-      accent: "#ff6fa8",
+      accent: "pink",
       start_minimized: false,
       close_to_tray: true,
       autostart: false,

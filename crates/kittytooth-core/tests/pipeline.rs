@@ -730,6 +730,12 @@ async fn overlay_serves_html_and_state() {
     assert_eq!(s, 200);
     let html = String::from_utf8(body).unwrap();
     assert!(html.contains("EventSource") && html.contains("background: transparent"));
+    let (s, font) =
+        kittytooth_core::http::get(srv.addr, "/fonts/bricolage-800.woff2", Duration::from_secs(2))
+            .await
+            .unwrap();
+    assert_eq!(s, 200);
+    assert_eq!(&font[..4], b"wOF2");
     tokio::time::sleep(Duration::from_millis(300)).await;
     let (s, body) = kittytooth_core::http::get(srv.addr, "/api/state", Duration::from_secs(2))
         .await

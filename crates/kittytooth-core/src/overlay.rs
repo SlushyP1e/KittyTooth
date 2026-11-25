@@ -15,6 +15,8 @@ use crate::error::{KtError, KtResult};
 use crate::http;
 
 pub const OVERLAY_HTML: &str = include_str!("overlay.html");
+const FONT_DISPLAY: &[u8] = include_bytes!("fonts/bricolage-grotesque-latin-800-normal.woff2");
+const FONT_MONO: &[u8] = include_bytes!("fonts/jetbrains-mono-latin-400-normal.woff2");
 
 /// Running overlay server; dropping it stops the server.
 pub struct OverlayServer {
@@ -96,6 +98,16 @@ async fn handle(mut stream: TcpStream, engine: EngineHandle) -> std::io::Result<
                 .await?;
         }
         "/events" => return sse(stream, engine).await,
+        "/fonts/bricolage-800.woff2" => {
+            stream
+                .write_all(&http::response(200, "font/woff2", FONT_DISPLAY))
+                .await?
+        }
+        "/fonts/jetbrains-400.woff2" => {
+            stream
+                .write_all(&http::response(200, "font/woff2", FONT_MONO))
+                .await?
+        }
         _ => {
             stream
                 .write_all(&http::response(404, "text/plain", b"not found"))

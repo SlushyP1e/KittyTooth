@@ -1,0 +1,162 @@
+/*
+ * KittyTooth design tokens ("Slushy" design language).
+ * This is the ONLY file allowed to contain literal colors; src/lib/no-hex.test.ts enforces it.
+ */
+
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/bricolage-grotesque-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./assets/fonts/bricolage-grotesque-latin-700-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Bricolage Grotesque";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("./assets/fonts/bricolage-grotesque-latin-800-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/figtree-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/figtree-latin-500-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("./assets/fonts/figtree-latin-600-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./assets/fonts/jetbrains-mono-latin-400-normal.woff2") format("woff2");
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./assets/fonts/jetbrains-mono-latin-500-normal.woff2") format("woff2");
+}
+
+/* ---------- Dark (default) ---------- */
+:root,
+:root[data-theme="dark"] {
+  --slate-0: #0e1014; /* page and sidebar */
+  --slate-1: #161920; /* main panel */
+  --slate-2: #1e222b; /* raised row / hover */
+  --slate-3: #2a2f3a; /* hairlines and borders */
+  --text: #e8e8ed; /* headings, key values */
+  --body: #cacbd3; /* body text */
+  --muted: #9699a5; /* secondary text, labels */
+  --pink: #ffadc6; /* the only accent */
+  --pink-deep: #c3698a; /* toggle on state, outlines */
+  --pink-soft: rgba(255, 173, 198, 0.12); /* selected nav, tags */
+  --green: #5fbf8f;
+  --amber: #d9a441;
+  --red: #e06c75;
+  --knob-on: #ffffff;
+  color-scheme: dark;
+}
+
+/* ---------- Light (derived: same structure, neutral greys, deeper accent for contrast) ---------- */
+:root[data-theme="light"] {
+  --slate-0: #f3f3f1;
+  --slate-1: #fbfbfa;
+  --slate-2: #ededea;
+  --slate-3: #dcdcd7;
+  --text: #15171c;
+  --body: #3a3d45;
+  --muted: #686b75;
+  --pink: #c0466f;
+  --pink-deep: #9e3458;
+  --pink-soft: rgba(192, 70, 111, 0.1);
+  --green: #2f8f5f;
+  --amber: #a87818;
+  --red: #c2454f;
+  --knob-on: #ffffff;
+  color-scheme: light;
+}
+
+/* ---------- Accent presets: swap --pink, --pink-deep and --pink-soft together ---------- */
+:root[data-accent="peach"] {
+  --pink: #ffc6a5;
+  --pink-deep: #c2805c;
+  --pink-soft: rgba(255, 198, 165, 0.12);
+}
+:root[data-accent="lilac"] {
+  --pink: #d4b8ff;
+  --pink-deep: #8f6cc2;
+  --pink-soft: rgba(212, 184, 255, 0.12);
+}
+:root[data-accent="sky"] {
+  --pink: #a8d1ff;
+  --pink-deep: #5b88bd;
+  --pink-soft: rgba(168, 209, 255, 0.12);
+}
+:root[data-theme="light"][data-accent="peach"] {
+  --pink: #a9562a;
+  --pink-deep: #8a4420;
+  --pink-soft: rgba(169, 86, 42, 0.1);
+}
+:root[data-theme="light"][data-accent="lilac"] {
+  --pink: #7a4fc0;
+  --pink-deep: #613d9e;
+  --pink-soft: rgba(122, 79, 192, 0.1);
+}
+:root[data-theme="light"][data-accent="sky"] {
+  --pink: #2f6db3;
+  --pink-deep: #245690;
+  --pink-soft: rgba(47, 109, 179, 0.1);
+}
+
+/* Swatch colors for the accent picker (always the dark-theme value, the accent's identity). */
+:root {
+  --swatch-pink: #ffadc6;
+  --swatch-peach: #ffc6a5;
+  --swatch-lilac: #d4b8ff;
+  --swatch-sky: #a8d1ff;
+}
+
+/* ---------- Type, radii, spacing ---------- */
+:root {
+  --display: "Bricolage Grotesque", "Figtree", sans-serif;
+  --sans: "Figtree", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --r-panel: 18px;
+  --r-row: 12px;
+  --r-btn: 9px;
+  --r-pill: 99px;
+
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 14px;
+  --s5: 22px;
+  --s6: 28px;
+
+  --on-pink: var(--slate-0);
+  --spring: cubic-bezier(0.3, 1.4, 0.5, 1);
+}

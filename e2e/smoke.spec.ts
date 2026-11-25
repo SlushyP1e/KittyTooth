@@ -38,10 +38,10 @@ test("live screen shows BPM, beat-synced heart and a painted graph", async ({ pa
     const c = document.querySelector(".graph canvas") as HTMLCanvasElement;
     const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
     let n = 0;
-    for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] < 160 && d[i + 2] > 120 && d[i + 3] > 200) n++;
+    for (let i = 0; i < d.length; i += 4) if (d[i] > 200 && d[i + 1] > 130 && d[i + 1] < 210 && d[i + 2] > 150 && d[i + 3] > 200) n++;
     return n;
   });
-  expect(painted).toBeGreaterThan(200);
+  expect(painted).toBeGreaterThan(100);
   // Range switch.
   await page.getByRole("radio", { name: "5 min" }).click();
   await expect(page.getByRole("radio", { name: "5 min" })).toHaveAttribute("aria-checked", "true");
@@ -69,8 +69,8 @@ test("keyboard navigation reaches every screen with visible focus", async ({ pag
   await page.keyboard.press("Tab"); // Devices
   const focused = page.locator(":focus");
   await expect(focused).toHaveText(/Devices/);
-  const shadow = await focused.evaluate((el) => getComputedStyle(el).boxShadow);
-  expect(shadow).not.toBe("none");
+  const outline = await focused.evaluate((el) => getComputedStyle(el).outlineStyle);
+  expect(outline).toBe("solid");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
 });
@@ -102,14 +102,14 @@ test("OSC screen: targets, validation, test sweep and live log", async ({ page }
   await expect(card.getByText("Port must be 1-65535")).toBeVisible();
   await card.getByRole("spinbutton", { name: "Port" }).fill("9000");
   await expect(card.getByText("Port must be 1-65535")).toHaveCount(0);
-  await card.getByRole("combobox", { name: "Parameter preset" }).selectOption("custom");
+  await card.getByRole("radiogroup", { name: "Parameter preset" }).getByRole("radio", { name: "Custom" }).click();
   await card.getByRole("button", { name: "Add parameter" }).click();
   await expect(card.getByRole("textbox", { name: "OSC address" })).toHaveValue("KittyTooth/Custom1");
   await page.getByRole("button", { name: "Add target" }).click();
   await expect(page.getByRole("article")).toHaveCount(2);
   await page.getByRole("button", { name: "Send test sweep" }).click();
   const log = page.getByRole("log", { name: "OSC messages sent" });
-  await expect(log.getByText("int · test").first()).toBeVisible({ timeout: 5000 });
+  await expect(log.getByText("test", { exact: true }).first()).toBeVisible({ timeout: 5000 });
   await page.getByRole("button", { name: "Pause" }).click();
   await expect(page.getByRole("button", { name: "Resume" })).toBeVisible();
   await page.getByRole("switch", { name: "VRChat chatbox" }).click();
@@ -122,8 +122,8 @@ test("settings: theme, accent, diagnostics", async ({ page }) => {
   await page.goto("/#/settings");
   await page.getByRole("radiogroup", { name: "Theme" }).getByRole("radio", { name: "Light" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
-  await page.getByRole("radio", { name: "Accent #6c9dff" }).click();
-  await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue("--accent"))).toBe("#6c9dff");
+  await page.getByRole("radio", { name: "Accent sky" }).click();
+  await expect(page.locator("html")).toHaveAttribute("data-accent", "sky");
   await page.getByRole("radiogroup", { name: "Smoothing" }).getByRole("radio", { name: "Medium" }).click();
   await expect(page.getByText("All changes saved")).toBeVisible();
   await page.getByRole("button", { name: "Copy diagnostics" }).click();
@@ -151,7 +151,7 @@ test("empty state offers the demo strap", async ({ page }) => {
 test("mini window shows BPM", async ({ page }) => {
   await page.setViewportSize({ width: 232, height: 112 });
   await page.goto("/#/mini");
-  await expect(page.getByTestId("mini-bpm")).toHaveText(/\d{2,3}bpm/);
+  await expect(page.getByTestId("mini-bpm")).toHaveText(/^\d{2,3}$/);
 });
 
 test("respects reduced motion", async ({ browser }) => {
@@ -160,7 +160,7 @@ test("respects reduced motion", async ({ browser }) => {
   await page.goto("http://localhost:1420/#/live");
   await expect(page.getByTestId("bpm")).toHaveText(/^\d{2,3}$/);
   const dur = await page.evaluate(() => {
-    const el = document.querySelector(".chip .dot") ?? document.body;
+    const el = document.querySelector(".page") ?? document.body;
     return getComputedStyle(el).animationDuration;
   });
   expect(["0.001ms", "1e-06s", "0s"]).toContain(dur);

@@ -1,7 +1,8 @@
 <script lang="ts">
-  import { ZONE_COLORS, zoneName } from "../format";
+  import { zoneName } from "../format";
 
-  // Six-segment zone band with a marker at the current heart rate.
+  // One thin track: current zone in full accent, lower zones at 35 %, higher zones empty.
+  // Zones are told apart by their labels, not by hue.
   let {
     bpm,
     maxHr,
@@ -10,94 +11,73 @@
     active,
   }: { bpm: number | null; maxHr: number; thresholds: number[]; zone: number; active: boolean } = $props();
 
-  // Display scale: 40 % .. 100 % of max HR.
   const LO = 40;
   const pos = (pct: number) => Math.max(0, Math.min(100, ((pct - LO) / (100 - LO)) * 100));
   const edges = $derived([LO, ...thresholds, 100]);
   const pct = $derived(bpm == null ? null : (bpm * 100) / maxHr);
 </script>
 
-<div class="zoneband" class:inactive={!active}>
-  <div class="head">
-    <span class="label">Zone</span>
-    <span class="zname" style:color={active ? ZONE_COLORS[zone] : undefined}>
-      {active ? `${zone} · ${zoneName(zone)}` : "--"}
-    </span>
-    <span class="spacer"></span>
-    <span class="muted tabular">{pct == null || !active ? "--" : `${Math.round(pct)}% of max ${maxHr}`}</span>
-  </div>
-  <div class="bar" role="meter" aria-label="Heart rate zone" aria-valuemin={0} aria-valuemax={5} aria-valuenow={zone}>
-    {#each ZONE_COLORS as c, i (i)}
+<div class="zone">
+  <div class="track" role="meter" aria-label="Heart rate zone" aria-valuemin={0} aria-valuemax={5} aria-valuenow={zone}>
+    {#each [0, 1, 2, 3, 4, 5] as i (i)}
       <div
         class="seg"
         class:current={active && i === zone}
-        style:left="{pos(i === 0 ? LO : edges[i])}%"
-        style:width="{pos(edges[i + 1]) - pos(i === 0 ? LO : edges[i])}%"
-        style:background={c}
+        class:lower={active && i < zone}
+        style:left="{pos(edges[i])}%"
+        style:width="calc({pos(edges[i + 1]) - pos(edges[i])}% - 2px)"
       ></div>
+      <span class="num mono" style:left="{pos(edges[i])}%" class:on={active && i === zone}>{i}</span>
     {/each}
-    {#if pct != null && active}
-      <div class="marker" style:left="{pos(pct)}%"></div>
-    {/if}
   </div>
+  <p class="readout mono">
+    {#if active && pct != null}
+      zone {zone} · {zoneName(zone).toLowerCase()} · {Math.round(pct)}% of {maxHr}
+    {:else}
+      zone --
+    {/if}
+  </p>
 </div>
 
 <style>
-  .zoneband {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
+  .zone {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: start;
+    gap: var(--s5);
   }
-  .head {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    font-size: 13px;
-  }
-  .label {
-    color: var(--muted);
-    font-weight: 560;
-  }
-  .zname {
-    font-weight: 650;
-  }
-  .spacer {
-    flex: 1;
-  }
-  .bar {
+  .track {
     position: relative;
-    height: 10px;
-    border-radius: 999px;
-    background: var(--surface-2);
+    height: 4px;
+    margin-top: 6px;
+    margin-bottom: 18px;
   }
   .seg {
     position: absolute;
     top: 0;
-    bottom: 0;
-    opacity: 0.35;
-    transition: opacity 0.3s;
+    height: 4px;
+    border-radius: var(--r-pill);
+    background: var(--slate-3);
+    transition: background 300ms;
   }
-  .seg:first-child {
-    border-radius: 999px 0 0 999px;
-  }
-  .seg:nth-child(6) {
-    border-radius: 0 999px 999px 0;
+  .seg.lower {
+    background: color-mix(in srgb, var(--pink) 35%, transparent);
   }
   .seg.current {
-    opacity: 1;
+    background: var(--pink);
   }
-  .marker {
+  .num {
     position: absolute;
-    top: -4px;
-    width: 4px;
-    height: 18px;
-    margin-left: -2px;
-    border-radius: 3px;
-    background: var(--text);
-    box-shadow: 0 0 0 2px var(--surface);
-    transition: left 0.6s cubic-bezier(0.2, 0.8, 0.3, 1);
+    top: 10px;
+    font-size: 10.5px;
+    color: var(--muted);
   }
-  .inactive .seg {
-    opacity: 0.18;
+  .num.on {
+    color: var(--pink);
+  }
+  .readout {
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
   }
 </style>
