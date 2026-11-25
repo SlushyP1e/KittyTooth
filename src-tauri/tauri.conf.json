@@ -1,0 +1,58 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KittyTooth",
+  "mainBinaryName": "KittyTooth",
+  "version": "1.0.0",
+  "identifier": "app.kittytooth.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "main",
+        "title": "KittyTooth",
+        "width": 1080,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560,
+        "visible": false,
+        "center": true,
+        "backgroundColor": "#14121a"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "appimage"],
+    "publisher": "KittyTooth",
+    "copyright": "Copyright (c) 2026 SlushyPie. MIT License.",
+    "category": "Utility",
+    "shortDescription": "Bluetooth heart rate to VRChat over OSC",
+    "longDescription": "KittyTooth reads heart rate from Bluetooth LE sensors and sends it to VRChat and other OSC apps.",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser",
+        "displayLanguageSelector": false
+      },
+      "webviewInstallMode": { "type": "downloadBootstrapper", "silent": true }
+    },
+    "linux": {
+      "appimage": { "bundleMediaFramework": false }
+    }
+  }
+}

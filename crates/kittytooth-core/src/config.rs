@@ -279,6 +279,8 @@ pub struct UiConfig {
     pub theme: Theme,
     pub accent: String,
     pub start_minimized: bool,
+    /// Closing the main window hides it to the tray instead of quitting.
+    pub close_to_tray: bool,
     pub autostart: bool,
     pub mini_always_on_top: bool,
     /// Graph range: "60s", "5m" or "session".
@@ -291,6 +293,7 @@ impl Default for UiConfig {
             theme: Theme::Dark,
             accent: "#ff6fa8".into(),
             start_minimized: false,
+            close_to_tray: true,
             autostart: false,
             mini_always_on_top: true,
             graph_range: "60s".into(),

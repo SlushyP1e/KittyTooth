@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/kittytooth-core"]
+members = ["crates/kittytooth-core", "src-tauri"]
 
 [workspace.package]
 version = "1.0.0"
