@@ -1,0 +1,454 @@
+// In-browser simulated backend. Used when the UI runs outside Tauri: `npm run dev`, Vitest,
+// Playwright smoke tests and README screenshots. It mimics the Rust engine's behaviour:
+// scanning, connecting, a realistic heart rate with RR-timed beats, session stats, HRV,
+// OSC log entries and the test sweep.
+
+import type { Backend, Unlisten } from "./backend";
+import { defaultConfig, emptySnapshot } from "../defaults";
+import type {
+  BackendEvents,
+  Config,
+  ConfigResult,
+  DiscoveredDevice,
+  HistoryPoint,
+  InitialState,
+  OscLogEntry,
+  Snapshot,
+  AppInfo,
+} from "../types";
+
+type AnyListener = (p: unknown) => void;
+
+const DEVICES: Omit<DiscoveredDevice, "last_seen_ms">[] = [
+  { id: "demo:strap", name: "KittyTooth Demo Strap", rssi: -52, has_hr_service: true, demo: true },
+  { id: "demo:watch", name: "KittyTooth Demo Watch", rssi: -71, has_hr_service: true, demo: true },
+  { id: "mock:h10", name: "Polar H10 7E21A3", rssi: -63, has_hr_service: true, demo: false },
+  { id: "mock:coospo", name: "COOSPO H808S", rssi: -79, has_hr_service: true, demo: false },
+];
+const OTHER_DEVICES: Omit<DiscoveredDevice, "last_seen_ms">[] = [
+  { id: "mock:mouse", name: "MX Master 3S", rssi: -58, has_hr_service: false, demo: false },
+  { id: "mock:buds", name: "Galaxy Buds2 Pro", rssi: -84, has_hr_service: false, demo: false },
+];
+
+/** Demo target heart rate at loop time t (s); same profile as the Rust demo strap. */
+export function demoTargetHr(t: number): number {
+  const loop = 360;
+  const x = ((t % loop) + loop) % loop;
+  const ease = (v: number) => v * v * (3 - 2 * v);
+  if (x < 60) return 64;
+  if (x < 180) return 64 + (158 - 64) * ease((x - 60) / 120);
+  if (x < 240) return 158 + 6 * Math.sin((x - 180) / 9);
+  if (x < 330) return 70 + (158 - 70) * Math.exp(-(x - 240) / 25);
+  return 66;
+}
+
+/** Deterministic PRNG so screenshots and tests are stable. */
+function mulberry32(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export interface MockOptions {
+  /** "demo" (default): auto-connected demo strap; "idle": nothing remembered; "error": radio off. */
+  scenario?: "demo" | "idle" | "error";
+  /** Virtual loop time at start, seconds. */
+  startAt?: number;
+  /** Real milliseconds per sample. */
+  sampleMs?: number;
+  /** Prefilled history in seconds. */
+  prefill?: number;
+}
+
+export interface MockBackend extends Backend {
+  dispose(): void;
+  /** Test hook: current internal snapshot. */
+  peek(): Snapshot;
+}
+
+export function createMockBackend(opts: MockOptions = {}): MockBackend {
+  const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
+  const scenario = opts.scenario ?? (params.get("mock") as MockOptions["scenario"]) ?? "demo";
+  const sampleMs = opts.sampleMs ?? 1000;
+  const prefill = opts.prefill ?? 300;
+  const rand = mulberry32(1234);
+  const listeners = new Map<keyof BackendEvents, Set<AnyListener>>();
+  const timers = new Set<ReturnType<typeof setTimeout>>();
+  let config: Config = defaultConfig();
+  let snap: Snapshot = emptySnapshot();
+  const history: HistoryPoint[] = [];
+  const log: OscLogEntry[] = [];
+  let logSeq = 1;
+  let vt = opts.startAt ?? 168; // virtual loop seconds (mid exercise ramp)
+  let beatToggle = false;
+  let sweepUntil = 0;
+  let scanTimer: ReturnType<typeof setInterval> | null = null;
+  const devices = new Map<string, DiscoveredDevice>();
+  const rrWindow: { t: number; rr: number }[] = [];
+  let sampleTimer: ReturnType<typeof setTimeout> | null = null;
+  let beatTimer: ReturnType<typeof setTimeout> | null = null;
+  let disposed = false;
+
+  const info: AppInfo = {
+    version: "1.0.0",
+    platform: "browser (demo mode)",
+    overlay_url: "http://127.0.0.1:9123/overlay",
+    overlay_error: null,
+    log_dir: "%APPDATA%\\app.kittytooth.desktop\\logs",
+    config_path: "%APPDATA%\\app.kittytooth.desktop\\config.json",
+    notice: null,
+  };
+
+  function emit<K extends keyof BackendEvents>(event: K, payload: BackendEvents[K]) {
+    listeners.get(event)?.forEach((cb) => cb(structuredClone(payload)));
+  }
+  function later(ms: number, fn: () => void) {
+    const t = setTimeout(() => {
+      timers.delete(t);
+      if (!disposed) fn();
+    }, ms);
+    timers.add(t);
+    return t;
+  }
+  function publish() {
+    emit("snapshot", snap);
+  }
+  function pushLog(address: string, value: string, kind: string, test = false) {
+    log.push({ seq: logSeq++, t_ms: Date.now(), target: "VRChat", address, value, kind, test });
+    if (snap.targets[0]) snap.targets[0].stats.sent++;
+    if (log.length > 50) log.splice(0, log.length - 50);
+  }
+  function rmssd(): number | null {
+    const now = Date.now();
+    while (rrWindow.length && now - rrWindow[0].t > 30_000) rrWindow.shift();
+    if (rrWindow.length < 5) return null;
+    let s = 0;
+    for (let i = 1; i < rrWindow.length; i++) s += (rrWindow[i].rr - rrWindow[i - 1].rr) ** 2;
+    return Math.sqrt(s / (rrWindow.length - 1));
+  }
+  function maxHr() {
+    const a = config.zones.age;
+    return a && a > 0 && a <= 120 ? 220 - a : config.zones.manual_max_hr;
+  }
+  function zone(bpm: number) {
+    const pct = (bpm * 100) / maxHr();
+    return config.zones.thresholds.filter((t) => pct >= t).length;
+  }
+  function hrAt(t: number) {
+    return demoTargetHr(t) + (rand() - 0.5) * 2.4;
+  }
+
+  // Prefill history so the graph has something to show immediately.
+  function doPrefill() {
+    const now = Date.now();
+    for (let i = prefill; i > 0; i--) {
+      const t = vt - i;
+      const bpm = Math.round(hrAt(t));
+      history.push({ t_ms: now - i * 1000, bpm, raw: bpm });
+      snap.stats.samples++;
+      snap.stats.min = Math.min(snap.stats.min ?? bpm, bpm);
+      snap.stats.max = Math.max(snap.stats.max ?? bpm, bpm);
+      snap.stats.avg = ((snap.stats.avg ?? bpm) * (snap.stats.samples - 1) + bpm) / snap.stats.samples;
+    }
+  }
+
+  function scheduleBeat() {
+    if (beatTimer) clearTimeout(beatTimer);
+    if (!(snap.data_valid || snap.test_sweep) || snap.bpm == null) return;
+    const bpm = snap.test_sweep ? sweepBpm() : snap.bpm;
+    const breath = Math.sin((Date.now() / 1000) * ((2 * Math.PI) / 4.8));
+    const rsa = Math.max(0, 1 - (bpm - 60) / 110) * 0.06;
+    const interval = (60_000 / bpm) * (1 + rsa * breath + (rand() - 0.5) * 0.02);
+    beatTimer = later(interval, () => {
+      beatToggle = !beatToggle;
+      rrWindow.push({ t: Date.now(), rr: interval });
+      emit("beat", { interval_ms: Math.round(interval), test: snap.test_sweep });
+      pushLog("/avatar/parameters/KittyTooth/Beat", String(beatToggle), "bool", snap.test_sweep);
+      pushLog("/avatar/parameters/KittyTooth/BeatPulse", "true", "bool", snap.test_sweep);
+      scheduleBeat();
+    });
+  }
+
+  function sweepBpm() {
+    const left = Math.max(0, sweepUntil - Date.now());
+    const x = 1 - left / 16_000;
+    return 60 + 120 * (1 - Math.abs(2 * x - 1));
+  }
+
+  function sample() {
+    if (snap.state !== "connected" && snap.state !== "no_data") return;
+    vt += 1;
+    const raw = Math.round(hrAt(vt));
+    const smooth =
+      config.processing.smoothing === "off"
+        ? raw
+        : Math.round((snap.bpm ?? raw) * (config.processing.smoothing === "light" ? 0.5 : 0.75) +
+            raw * (config.processing.smoothing === "light" ? 0.5 : 0.25));
+    const point = { t_ms: Date.now(), bpm: smooth, raw };
+    history.push(point);
+    const st = snap.stats;
+    st.samples++;
+    st.min = Math.min(st.min ?? raw, raw);
+    st.max = Math.max(st.max ?? raw, raw);
+    st.avg = ((st.avg ?? raw) * (st.samples - 1) + raw) / st.samples;
+    const wasValid = snap.data_valid;
+    snap = {
+      ...snap,
+      state: "connected",
+      bpm: smooth,
+      raw_bpm: raw,
+      data_valid: true,
+      contact: snap.device?.id === "demo:watch" ? "not_supported" : "detected",
+      zone: zone(smooth),
+      max_hr: maxHr(),
+      hrv_ms: rmssd(),
+      last_packet_ms: Date.now(),
+      packets: snap.packets + 1,
+      energy_kj: snap.device?.id === "demo:strap" ? Math.round(vt * 1.7) : null,
+      latency: {
+        last_us: 380 + Math.round(rand() * 300),
+        avg_us: 512,
+        max_us: 1840,
+        samples: snap.latency.samples + 1,
+      },
+    };
+    if (!snap.test_sweep) {
+      const kt = "/avatar/parameters/KittyTooth/";
+      pushLog(kt + "HR", String(smooth), "int");
+      pushLog(kt + "Normalized", ((smooth - 40) / 160).toFixed(3), "float");
+      pushLog(kt + "Ones", String(smooth % 10), "int");
+    }
+    emit("sample", point);
+    publish();
+    if (!wasValid) scheduleBeat();
+    sampleTimer = later(sampleMs, sample);
+  }
+
+  function connectTo(id: string, name: string) {
+    if (sampleTimer) clearTimeout(sampleTimer);
+    snap = {
+      ...snap,
+      state: "connecting",
+      target: { id, name },
+      error: null,
+      attempt: 0,
+    };
+    config.device.last_device = { id, name };
+    emit("config", config);
+    publish();
+    later(700, () => {
+      snap = {
+        ...snap,
+        state: "no_data",
+        device: {
+          id,
+          name,
+          location: id === "demo:watch" ? "wrist" : "chest",
+          demo: id.startsWith("demo:"),
+        },
+        battery: id === "demo:watch" ? null : 87,
+      };
+      publish();
+      sampleTimer = later(300, sample);
+    });
+  }
+
+  function init() {
+    snap.adapter = scenario === "error" ? "off" : "ready";
+    snap.oscquery = { active: true, mdns: true, http_port: 51234, osc_port: 51235, error: null };
+    snap.vrchat = { service: "VRChat-Client-4F2A1C._oscjson._tcp.local.", ip: "127.0.0.1", port: 9000, local: true };
+    snap.targets = [
+      {
+        id: "vrchat",
+        name: "VRChat",
+        enabled: true,
+        dest: "127.0.0.1:9000",
+        via_oscquery: false,
+        stats: { sent: 0, coalesced: 0, errors: 0, last_error: null },
+      },
+    ];
+    snap.max_hr = maxHr();
+    if (scenario === "error") {
+      snap.error = {
+        code: "radio_off",
+        title: "Bluetooth is turned off",
+        message: "The Bluetooth radio is switched off, so sensors can't be reached.",
+        fix: "Turn Bluetooth on in Windows Settings > Bluetooth & devices (or the Action Center). KittyTooth will reconnect on its own.",
+      };
+      snap.state = "reconnecting";
+      snap.attempt = 3;
+      snap.retry_at_ms = Date.now() + 4000;
+      config.device.last_device = { id: "mock:h10", name: "Polar H10 7E21A3" };
+      snap.target = config.device.last_device;
+    } else if (scenario === "demo") {
+      doPrefill();
+      config.device.last_device = { id: "demo:strap", name: "KittyTooth Demo Strap" };
+      snap.target = config.device.last_device;
+      snap.state = "connected";
+      snap.device = { id: "demo:strap", name: "KittyTooth Demo Strap", location: "chest", demo: true };
+      snap.battery = 87;
+      snap.data_valid = true;
+      const last = history[history.length - 1];
+      snap.bpm = last?.bpm ?? 72;
+      snap.raw_bpm = snap.bpm;
+      snap.zone = zone(snap.bpm);
+      // Seed HRV window.
+      const now = Date.now();
+      for (let i = 0; i < 24; i++) rrWindow.push({ t: now - (24 - i) * 450, rr: 430 + (rand() - 0.5) * 18 });
+      snap.hrv_ms = rmssd();
+      sampleTimer = later(sampleMs, sample);
+      later(50, scheduleBeat);
+    }
+  }
+  init();
+
+  const api: MockBackend = {
+    isMock: true,
+    dispose() {
+      disposed = true;
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
+      if (scanTimer) clearInterval(scanTimer);
+    },
+    peek: () => structuredClone(snap),
+    async getState(): Promise<InitialState> {
+      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info });
+    },
+    async setConfig(c: Config): Promise<ConfigResult> {
+      const next = structuredClone(c);
+      next.device.stale_timeout_secs = Math.min(60, Math.max(2, next.device.stale_timeout_secs));
+      next.osc.max_rate = Math.min(20, Math.max(1, next.osc.max_rate));
+      next.osc.chatbox.interval_secs = Math.max(2, next.osc.chatbox.interval_secs);
+      config = next;
+      snap.max_hr = maxHr();
+      snap.targets = config.osc.targets.map((t) => ({
+        id: t.id,
+        name: t.name,
+        enabled: t.enabled,
+        dest: t.enabled ? `${t.host}:${t.port}` : null,
+        via_oscquery: false,
+        stats: { sent: 0, coalesced: 0, errors: 0, last_error: null },
+      }));
+      info.overlay_url = config.overlay.enabled ? `http://127.0.0.1:${config.overlay.port}/overlay` : null;
+      publish();
+      return structuredClone({ config, info });
+    },
+    async startScan() {
+      snap.scanning = true;
+      publish();
+      const tick = () => {
+        const list = [...DEVICES, ...(config.device.show_all_devices ? OTHER_DEVICES : [])].filter(
+          (d) => config.device.demo_device || !d.demo,
+        );
+        for (const d of list) {
+          devices.set(d.id, { ...d, rssi: (d.rssi ?? -70) + Math.round((rand() - 0.5) * 8), last_seen_ms: Date.now() });
+        }
+        for (const id of [...devices.keys()]) if (!list.some((d) => d.id === id)) devices.delete(id);
+        emit("devices", [...devices.values()].sort((a, b) => Number(b.has_hr_service) - Number(a.has_hr_service) || (b.rssi ?? -999) - (a.rssi ?? -999)));
+      };
+      if (scanTimer) clearInterval(scanTimer);
+      later(150, tick);
+      scanTimer = setInterval(tick, 1000);
+    },
+    async stopScan() {
+      if (scanTimer) clearInterval(scanTimer);
+      scanTimer = null;
+      snap.scanning = false;
+      publish();
+    },
+    async connect(id, name) {
+      connectTo(id, name);
+    },
+    async disconnect() {
+      if (sampleTimer) clearTimeout(sampleTimer);
+      if (beatTimer) clearTimeout(beatTimer);
+      snap = { ...snap, state: "idle", device: null, target: null, data_valid: false, battery: null, error: null };
+      pushLog("/avatar/parameters/KittyTooth/Connected", "false", "bool");
+      publish();
+    },
+    async forget() {
+      await api.disconnect();
+      config.device.last_device = null;
+      emit("config", config);
+    },
+    async testSweep(on) {
+      snap.test_sweep = on;
+      if (on) {
+        sweepUntil = Date.now() + 16_000;
+        const step = () => {
+          if (!snap.test_sweep) return;
+          if (Date.now() >= sweepUntil) {
+            snap.test_sweep = false;
+            publish();
+            scheduleBeat();
+            return;
+          }
+          pushLog("/avatar/parameters/KittyTooth/HR", String(Math.round(sweepBpm())), "int", true);
+          later(250, step);
+        };
+        step();
+        scheduleBeat();
+      }
+      publish();
+    },
+    async resetSession() {
+      history.length = 0;
+      snap.stats = { min: null, max: null, avg: null, samples: 0 };
+      publish();
+    },
+    async getHistory(sinceMs) {
+      return history.filter((p) => p.t_ms > sinceMs);
+    },
+    async getOscLog() {
+      return structuredClone(log);
+    },
+    async exportConfig() {
+      if (typeof document !== "undefined" && typeof URL.createObjectURL === "function") {
+        const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = "kittytooth-settings.json";
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      return "kittytooth-settings.json";
+    },
+    async importConfig() {
+      return null;
+    },
+    async resetConfig() {
+      await api.forget();
+      return api.setConfig(defaultConfig());
+    },
+    async copyDiagnostics() {
+      const text = `KittyTooth diagnostics (demo mode)\n${JSON.stringify({ snapshot: snap, config }, null, 2)}`;
+      try {
+        await navigator.clipboard?.writeText(text);
+      } catch {
+        /* clipboard may be unavailable in tests */
+      }
+      return text;
+    },
+    async openMini() {
+      if (typeof window !== "undefined") window.open("#/mini", "kittytooth-mini", "width=232,height=112");
+    },
+    async closeMini() {
+      if (typeof window !== "undefined" && location.hash === "#/mini") window.close();
+    },
+    async showMain() {},
+    async startDrag() {},
+    async on<K extends keyof BackendEvents>(event: K, cb: (p: BackendEvents[K]) => void): Promise<Unlisten> {
+      let set = listeners.get(event);
+      if (!set) listeners.set(event, (set = new Set()));
+      const fn = cb as AnyListener;
+      set.add(fn);
+      return () => void set.delete(fn);
+    },
+  };
+  return api;
+}

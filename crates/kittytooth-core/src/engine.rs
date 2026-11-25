@@ -105,6 +105,8 @@ pub struct Snapshot {
     pub last_packet_ms: Option<u64>,
     pub adapter: AdapterState,
     pub error: Option<UserError>,
+    /// Last scan failure (adapter problems are reported via `adapter`).
+    pub scan_error: Option<UserError>,
     pub scanning: bool,
     pub test_sweep: bool,
     pub targets: Vec<TargetStatus>,
@@ -674,19 +676,17 @@ impl Engine {
             Command::StartScan => {
                 self.snap.scanning = true;
                 self.dirty = true;
-                if let Err(e) = self
+                self.snap.scan_error = match self
                     .backend
                     .start_scan(self.config.device.show_all_devices, self.scan_tx.clone())
                     .await
                 {
-                    tracing::info!(error = %e, "scan start failed");
-                    self.snap.error = Some(e.user());
-                } else if matches!(
-                    self.snap.error.as_ref().map(|e| e.code.as_str()),
-                    Some("radio_off" | "adapter_missing")
-                ) {
-                    self.snap.error = None;
-                }
+                    Ok(()) => None,
+                    Err(e) => {
+                        tracing::info!(error = %e, "scan start failed");
+                        Some(e.user())
+                    }
+                };
             }
             Command::StopScan => {
                 let _ = self.backend.stop_scan().await;
@@ -810,13 +810,12 @@ impl Engine {
             self.devices.clear();
             self.devices_dirty = true;
             let _ = self.backend.stop_scan().await;
-            if let Err(e) = self
+            self.snap.scan_error = self
                 .backend
                 .start_scan(self.config.device.show_all_devices, self.scan_tx.clone())
                 .await
-            {
-                self.snap.error = Some(e.user());
-            }
+                .err()
+                .map(|e| e.user());
         }
         self.snap.max_hr = self.config.zones.max_hr();
         self.dirty = true;

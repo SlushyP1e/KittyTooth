@@ -1,0 +1,349 @@
+/* KittyTooth design tokens. Dark is the default; light and system are supported. */
+:root,
+:root[data-theme="dark"] {
+  --bg: #14121a;
+  --bg-grad: radial-gradient(1200px 600px at 85% -10%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 60%);
+  --surface: #1c1924;
+  --surface-2: #241f2e;
+  --surface-3: #2d2738;
+  --border: #322b3e;
+  --text: #f5f0fa;
+  --muted: #a99fb8;
+  --faint: #7c7389;
+  --shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset, 0 8px 24px rgba(0, 0, 0, 0.28);
+  --ok: #3fcf97;
+  --warn: #f5c84c;
+  --error: #ff6b7f;
+  --busy: #8fb6ff;
+  --grid: rgba(255, 255, 255, 0.06);
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f8f5fb;
+  --bg-grad: radial-gradient(1200px 600px at 85% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%);
+  --surface: #ffffff;
+  --surface-2: #f4eff7;
+  --surface-3: #ebe3f0;
+  --border: #e4dbea;
+  --text: #1e1826;
+  --muted: #625a6e;
+  --faint: #8a8295;
+  --shadow: 0 1px 2px rgba(40, 20, 60, 0.06), 0 8px 24px rgba(40, 20, 60, 0.06);
+  --ok: #138a5e;
+  --warn: #9a6b00;
+  --error: #c62a45;
+  --busy: #2f63c8;
+  --grid: rgba(30, 20, 40, 0.07);
+  color-scheme: light;
+}
+
+:root {
+  --accent: #ff6fa8;
+  --accent-text: #000000;
+  --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+  --radius: 16px;
+  --radius-sm: 10px;
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, "SF Mono", Menlo, monospace;
+  --focus: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg-grad), var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 650;
+}
+
+h2 {
+  font-size: 15px;
+  font-weight: 620;
+}
+
+p {
+  margin: 0;
+}
+
+a {
+  color: var(--accent);
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.mono {
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* Buttons */
+.btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 14px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 560;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background 0.15s,
+    border-color 0.15s,
+    transform 0.08s;
+}
+
+.btn:hover {
+  background: var(--surface-3);
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: var(--accent-text);
+}
+
+.btn.primary:hover {
+  background: color-mix(in srgb, var(--accent) 88%, var(--text));
+}
+
+.btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+
+.btn.ghost:hover {
+  background: var(--surface-2);
+}
+
+.btn.danger {
+  color: var(--error);
+}
+
+.btn.small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+
+.btn.icon {
+  width: 34px;
+  padding: 0;
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus);
+}
+
+/* Form controls */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field > span,
+.label {
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--muted);
+}
+
+.hint,
+.field > .hint {
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--faint);
+}
+
+.invalid-msg,
+.field > .invalid-msg {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--error);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="url"],
+select {
+  appearance: none;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  min-width: 0;
+}
+
+input[type="number"] {
+  font-variant-numeric: tabular-nums;
+}
+
+select {
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 16px) 15px,
+    calc(100% - 11px) 15px;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+}
+
+input[aria-invalid="true"] {
+  border-color: var(--error);
+}
+
+input:focus-visible,
+select:focus-visible {
+  border-color: var(--accent);
+}
+
+/* Segmented control */
+.segmented {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+
+.segmented button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 560;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.segmented button[aria-checked="true"],
+.segmented button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--surface-3);
+  border-radius: 10px;
+  border: 2px solid var(--bg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Mini window: transparent around the rounded card. */
+:root.mini-mode,
+:root.mini-mode body {
+  background: transparent;
+}

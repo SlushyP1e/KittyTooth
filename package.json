@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "playwright test e2e/screenshots.spec.ts",
+    "screenshots": "SCREENSHOTS=1 playwright test",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -25,6 +25,7 @@
     "@tauri-apps/cli": "^2.12.6",
     "@testing-library/svelte": "^5.4.2",
     "@tsconfig/svelte": "^5.0.9",
+    "@types/node": "^22.20.7",
     "eslint": "^10.15.0",
     "eslint-plugin-svelte": "^3.24.1",
     "globals": "^17.14.0",
