@@ -13,6 +13,7 @@ async function setTheme(page: Page, theme: "dark" | "light") {
 
 const VIEWS = [
   ["live", "/#/live", 2600],
+  ["source", "/#/source", 900],
   ["devices", "/#/devices", 1800],
   ["osc", "/#/osc", 1800],
   ["settings", "/#/settings", 600],
@@ -40,6 +41,17 @@ test("screenshot osc log", async ({ page }) => {
   await page.waitForTimeout(2000);
   await page.getByRole("log", { name: "OSC messages sent" }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: `${OUT}/osc-log.png` });
+});
+
+test("screenshot source with fallback", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 820 });
+  await page.goto("/#/source");
+  await page.getByRole("button", { name: "Use Pulsoid" }).click();
+  await page.getByLabel("Access token").fill("8c4da3ce-7ed7-4a19-a1f1-058498661e45");
+  await page.getByRole("button", { name: "Save token" }).click();
+  await page.getByRole("switch", { name: "Fall back to a backup source" }).click();
+  await page.waitForTimeout(3200); // let the "saved" toast go
+  await page.screenshot({ path: `${OUT}/source-pulsoid.png` });
 });
 
 test("screenshot error", async ({ page }) => {

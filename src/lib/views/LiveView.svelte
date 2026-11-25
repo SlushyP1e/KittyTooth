@@ -6,7 +6,7 @@
   import ZoneBand from "../components/ZoneBand.svelte";
   import Choice from "../components/Choice.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
-  import { connectionStatus, formatBpm, formatMs, locationLabel } from "../format";
+  import { connectionStatus, formatBpm, formatMs, locationLabel, missingFeatures, SOURCE_INFO } from "../format";
   import type { GraphRange } from "../types";
 
   let { navigate }: { navigate: (v: string) => void } = $props();
@@ -29,6 +29,7 @@
           : "No sensor connected",
   );
   const location = $derived(locationLabel(s.device?.location ?? null));
+  const missing = $derived(missingFeatures(s.capabilities));
 
   $effect(() => {
     if (!s.retry_at_ms) return;
@@ -57,7 +58,7 @@
     </ErrorBanner>
   {/if}
 
-  {#if !s.target && s.state === "idle" && !s.test_sweep}
+  {#if !s.target && s.sources.length === 0 && s.state === "idle" && !s.test_sweep && !s.error}
     <div class="raised empty">
       <div class="stext">
         <p class="slabel">No sensor connected yet</p>
@@ -65,6 +66,7 @@
       </div>
       <div class="row">
         <button class="btn primary" onclick={() => navigate("devices")}>Find a sensor</button>
+        <button class="btn" onclick={() => navigate("source")}>Other sources</button>
         {#if app.config.device.demo_device}
           <button class="btn" onclick={() => app.run((a) => a.connect("demo:strap", "KittyTooth Demo Strap"))}
             >Try the demo strap</button
@@ -84,15 +86,20 @@
     <div class="meta">
       <p class="device">
         {#if s.device}{s.device.name}{:else if s.target}{s.target.name}{:else}<span class="muted">No device</span>{/if}
+        <span class="tag neutral mono src" title="Source">{SOURCE_INFO[s.live_source ?? s.source].tag}</span>
+        {#if s.fallback_active}<span class="tag warn mono src" title="The main source went quiet">backup</span>{/if}
       </p>
       <div class="tags">
         <StatusChip {status} />
-        {#if s.device?.demo}<span class="tag neutral">demo</span>{/if}
+        {#if s.device?.demo && (s.live_source ?? s.source) !== "demo"}<span class="tag neutral">demo</span>{/if}
         {#if s.battery != null}<span class="tag {s.battery <= 15 ? 'err' : 'neutral'}">{s.battery}% battery</span>{/if}
         {#if location && s.device}<span class="tag neutral">{location.toLowerCase()}</span>{/if}
         {#if s.device && s.contact === "detected"}<span class="tag neutral">contact ok</span>{/if}
         {#if s.device && s.contact === "not_detected"}<span class="tag warn">no skin contact</span>{/if}
       </div>
+      {#if missing.length && (s.device || s.sources.length)}
+        <p class="mono small muted">{missing.join(", ")} not available from this source</p>
+      {/if}
       {#if smoothingOn && live && s.raw_bpm != null}
         <p class="mono small muted">raw {s.raw_bpm} bpm</p>
       {/if}
@@ -148,7 +155,11 @@
     </div>
     <div title="RMSSD of RR intervals over the last 30 seconds. Needs a sensor that sends RR intervals.">
       <dt class="mono">hrv (rmssd)</dt>
-      <dd><span class="val tabular">{live ? formatMs(s.hrv_ms) : "--"}</span><span class="mono u">ms</span></dd>
+      {#if s.capabilities.rr}
+        <dd><span class="val tabular">{live ? formatMs(s.hrv_ms) : "--"}</span><span class="mono u">ms</span></dd>
+      {:else}
+        <dd class="na"><span class="mono">not available from this source</span></dd>
+      {/if}
     </div>
   </dl>
 </section>
@@ -216,6 +227,19 @@
   }
   .graph-area {
     height: 250px;
+  }
+  .src {
+    height: 20px;
+    font-size: 10.5px;
+    margin-left: var(--s2);
+    vertical-align: 3px;
+  }
+  .na {
+    display: flex;
+    align-items: flex-end;
+    min-height: 40px;
+    font-size: 11.5px;
+    color: var(--muted);
   }
   .stats {
     display: grid;

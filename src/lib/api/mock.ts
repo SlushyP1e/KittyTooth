@@ -15,6 +15,11 @@ import type {
   OscLogEntry,
   Snapshot,
   AppInfo,
+  Capabilities,
+  SecretKind,
+  SecretStatus,
+  SourceKind,
+  UserError,
 } from "../types";
 
 type AnyListener = (p: unknown) => void;
@@ -29,6 +34,18 @@ const OTHER_DEVICES: Omit<DiscoveredDevice, "last_seen_ms">[] = [
   { id: "mock:mouse", name: "MX Master 3S", rssi: -58, has_hr_service: false, demo: false },
   { id: "mock:buds", name: "Galaxy Buds2 Pro", rssi: -84, has_hr_service: false, demo: false },
 ];
+
+const CAPS: Record<SourceKind, Capabilities> = {
+  ble: { rr: true, battery: true, contact: true },
+  demo: { rr: true, battery: true, contact: true },
+  pulsoid: { rr: false, battery: true, contact: false },
+  hyperate: { rr: false, battery: false, contact: false },
+  osc: { rr: false, battery: false, contact: false },
+};
+
+function maskSecret(v: string): string {
+  return v.length <= 4 ? "••••" : `••••${v.slice(-4)}`;
+}
 
 /** Demo target heart rate at loop time t (s); same profile as the Rust demo strap. */
 export function demoTargetHr(t: number): number {
@@ -102,7 +119,17 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     log_dir: "%APPDATA%\\app.kittytooth.desktop\\logs",
     config_path: "%APPDATA%\\app.kittytooth.desktop\\config.json",
     notice: null,
+    secrets: [],
+    hyperate_builtin_key: true,
   };
+  const secrets = new Map<SecretKind, string>();
+  function secretStatuses(): SecretStatus[] {
+    return (["pulsoid_token", "hyperate_key"] as SecretKind[]).map((kind) => {
+      const v = secrets.get(kind);
+      return { kind, present: !!v, masked: v ? maskSecret(v) : null };
+    });
+  }
+  info.secrets = secretStatuses();
 
   function emit<K extends keyof BackendEvents>(event: K, payload: BackendEvents[K]) {
     listeners.get(event)?.forEach((cb) => cb(structuredClone(payload)));
@@ -116,6 +143,32 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     return t;
   }
   function publish() {
+    const fb = config.source.fallback;
+    snap.source = config.source.active;
+    snap.live_source = snap.data_valid || snap.test_sweep ? snap.source : null;
+    snap.sources = [];
+    if (snap.state !== "idle" || snap.error) {
+      snap.sources.push({
+        role: "primary",
+        kind: snap.source,
+        label: snap.device?.name ?? null,
+        state: snap.state,
+        error: snap.error,
+        last_packet_ms: snap.last_packet_ms,
+        live: true,
+      });
+      if (fb.enabled && fb.backup !== snap.source) {
+        snap.sources.push({
+          role: "backup",
+          kind: fb.backup,
+          label: fb.backup === "demo" ? "KittyTooth Demo Strap" : null,
+          state: "connected",
+          error: null,
+          last_packet_ms: snap.last_packet_ms,
+          live: false,
+        });
+      }
+    }
     emit("snapshot", snap);
   }
   function pushLog(address: string, value: string, kind: string, test = false) {
@@ -203,10 +256,10 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       bpm: smooth,
       raw_bpm: raw,
       data_valid: true,
-      contact: snap.device?.id === "demo:watch" ? "not_supported" : "detected",
+      contact: !snap.capabilities.contact || snap.device?.id === "demo:watch" ? "not_supported" : "detected",
       zone: zone(smooth),
       max_hr: maxHr(),
-      hrv_ms: rmssd(),
+      hrv_ms: snap.capabilities.rr ? rmssd() : null,
       last_packet_ms: Date.now(),
       packets: snap.packets + 1,
       energy_kj: snap.device?.id === "demo:strap" ? Math.round(vt * 1.7) : null,
@@ -229,17 +282,27 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     sampleTimer = later(sampleMs, sample);
   }
 
-  function connectTo(id: string, name: string) {
+  function stopStreaming() {
     if (sampleTimer) clearTimeout(sampleTimer);
+    if (beatTimer) clearTimeout(beatTimer);
+  }
+
+  function connectTo(id: string, name: string, kind: SourceKind = id.startsWith("demo:") ? "demo" : "ble") {
+    stopStreaming();
+    const bluetooth = kind === "ble" || kind === "demo";
+    config.source.active = kind;
+    if (bluetooth) config.device.last_device = { id, name };
+    emit("config", config);
     snap = {
       ...snap,
       state: "connecting",
-      target: { id, name },
+      target: bluetooth ? { id, name } : null,
+      device: null,
+      data_valid: false,
       error: null,
       attempt: 0,
+      capabilities: CAPS[kind],
     };
-    config.device.last_device = { id, name };
-    emit("config", config);
     publish();
     later(700, () => {
       snap = {
@@ -248,14 +311,78 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         device: {
           id,
           name,
-          location: id === "demo:watch" ? "wrist" : "chest",
+          location: bluetooth ? (id === "demo:watch" ? "wrist" : "chest") : null,
           demo: id.startsWith("demo:"),
         },
-        battery: id === "demo:watch" ? null : 87,
+        battery: !CAPS[kind].battery || id === "demo:watch" ? null : kind === "pulsoid" ? 64 : 87,
       };
       publish();
       sampleTimer = later(300, sample);
     });
+  }
+
+  function failSource(kind: SourceKind, error: UserError | null) {
+    stopStreaming();
+    config.source.active = kind;
+    emit("config", config);
+    snap = {
+      ...snap,
+      state: "idle",
+      device: null,
+      target: null,
+      data_valid: false,
+      battery: null,
+      error,
+      capabilities: CAPS[kind],
+    };
+    publish();
+  }
+
+  function startSource(kind: SourceKind) {
+    const last = config.device.last_device;
+    switch (kind) {
+      case "ble":
+        if (last && !last.id.startsWith("demo:")) connectTo(last.id, last.name, "ble");
+        else failSource("ble", null);
+        return;
+      case "demo":
+        if (last?.id.startsWith("demo:")) connectTo(last.id, last.name, "demo");
+        else connectTo("demo:strap", "KittyTooth Demo Strap", "demo");
+        return;
+      case "pulsoid": {
+        const tok = secrets.get("pulsoid_token");
+        if (!tok)
+          return failSource("pulsoid", {
+            code: "missing_credential",
+            title: "Pulsoid token needed",
+            message: "KittyTooth needs your Pulsoid access token to read your heart rate.",
+            fix: "Press Get token on the Source page, create a token on Pulsoid, and paste it into the token field.",
+          });
+        if (tok === "bad")
+          return failSource("pulsoid", {
+            code: "bad_token",
+            title: "Pulsoid token rejected",
+            message: "Pulsoid says the access token is invalid, revoked or expired.",
+            fix: "Create a new token with Get token on the Source page and paste it in. KittyTooth stops retrying until you do.",
+          });
+        return connectTo("pulsoid", "Pulsoid", "pulsoid");
+      }
+      case "hyperate": {
+        const id = config.source.hyperate.device_id.trim();
+        if (!/^[A-Za-z0-9_-]{2,32}$/.test(id))
+          return failSource("hyperate", {
+            code: "invalid_device_id",
+            title: "HypeRate device ID not accepted",
+            message: id ? `HypeRate didn't accept the device ID "${id}".` : "No HypeRate device ID has been entered.",
+            fix: "Copy the ID exactly as the HypeRate app shows it (letters and digits only) into the Device ID field.",
+          });
+        return connectTo(`hyperate:${id}`, `HypeRate ${id}`, "hyperate");
+      }
+      case "osc": {
+        const port = config.source.osc_input.port;
+        return connectTo(`osc:${port}`, `OSC input :${port}`, "osc");
+      }
+    }
   }
 
   function init() {
@@ -288,6 +415,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     } else if (scenario === "demo") {
       doPrefill();
       config.device.last_device = { id: "demo:strap", name: "KittyTooth Demo Strap" };
+      config.source.active = "demo";
       snap.target = config.device.last_device;
       snap.state = "connected";
       snap.device = { id: "demo:strap", name: "KittyTooth Demo Strap", location: "chest", demo: true };
@@ -324,8 +452,10 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       next.device.stale_timeout_secs = Math.min(60, Math.max(2, next.device.stale_timeout_secs));
       next.osc.max_rate = Math.min(20, Math.max(1, next.osc.max_rate));
       next.osc.chatbox.interval_secs = Math.max(2, next.osc.chatbox.interval_secs);
+      const sourceChanged = JSON.stringify(config.source) !== JSON.stringify(next.source);
       config = next;
       snap.max_hr = maxHr();
+      if (sourceChanged && (snap.state !== "idle" || snap.error)) startSource(config.source.active);
       snap.targets = config.osc.targets.map((t) => ({
         id: t.id,
         name: t.name,
@@ -364,9 +494,31 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     async connect(id, name) {
       connectTo(id, name);
     },
+    async selectSource(kind) {
+      startSource(kind);
+    },
+    async setSecret(kind, value) {
+      const v = value.trim();
+      if (!v)
+        throw {
+          code: "invalid_input",
+          title: "Invalid value",
+          message: "That doesn't look like a valid token or key.",
+          fix: "Correct the highlighted value and try again.",
+        };
+      secrets.set(kind, v);
+      info.secrets = secretStatuses();
+      if (snap.state !== "idle" || snap.error) startSource(config.source.active);
+      return secretStatuses();
+    },
+    async clearSecret(kind) {
+      secrets.delete(kind);
+      info.secrets = secretStatuses();
+      return secretStatuses();
+    },
+    async openLink() {},
     async disconnect() {
-      if (sampleTimer) clearTimeout(sampleTimer);
-      if (beatTimer) clearTimeout(beatTimer);
+      stopStreaming();
       snap = { ...snap, state: "idle", device: null, target: null, data_valid: false, battery: null, error: null };
       pushLog("/avatar/parameters/KittyTooth/Connected", "false", "bool");
       publish();

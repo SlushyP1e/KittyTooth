@@ -4,11 +4,13 @@ use kittytooth_core::config::{Config, ConfigStore};
 use kittytooth_core::engine::{HistoryPoint, Snapshot};
 use kittytooth_core::osc::sender::OscLogEntry;
 use kittytooth_core::sensor::DiscoveredDevice;
+use kittytooth_core::source::{self, SecretKind, SecretStatus, SourceKind};
 use kittytooth_core::{KtError, UserError};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_opener::OpenerExt;
 
 use crate::state::{self, AppState};
 use crate::{tray, windows};
@@ -28,6 +30,10 @@ pub struct AppInfo {
     pub log_dir: String,
     pub config_path: String,
     pub notice: Option<UserError>,
+    /// Stored tokens/keys, masked.
+    pub secrets: Vec<SecretStatus>,
+    /// This build ships a HypeRate API key, so users only need their device ID.
+    pub hyperate_builtin_key: bool,
 }
 
 #[derive(Serialize)]
@@ -48,7 +54,16 @@ async fn app_info(state: &AppState) -> AppInfo {
         log_dir: state.logging.dir.display().to_string(),
         config_path: state.store.path().display().to_string(),
         notice: state.startup_notice.lock().ok().and_then(|mut n| n.take()),
+        secrets: secret_statuses(state),
+        hyperate_builtin_key: source::builtin_hyperate_key().is_some(),
     }
+}
+
+fn secret_statuses(state: &AppState) -> Vec<SecretStatus> {
+    SecretKind::ALL
+        .iter()
+        .map(|&k| source::secret_status(state.secrets.as_ref(), k))
+        .collect()
 }
 
 #[tauri::command]
@@ -131,6 +146,56 @@ pub async fn forget(state: State<'_, AppState>) -> CmdResult<()> {
 }
 
 #[tauri::command]
+pub async fn select_source(state: State<'_, AppState>, kind: SourceKind) -> CmdResult<()> {
+    state.engine.select_source(kind).await.map_err(err)
+}
+
+#[tauri::command]
+pub fn get_secrets(state: State<'_, AppState>) -> Vec<SecretStatus> {
+    secret_statuses(&state)
+}
+
+/// Stores a token or key in the OS credential store and reconnects sources that use it.
+#[tauri::command]
+pub async fn set_secret(
+    state: State<'_, AppState>,
+    kind: SecretKind,
+    value: String,
+) -> CmdResult<Vec<SecretStatus>> {
+    let v = value.trim();
+    if v.is_empty() || v.len() > 512 || v.chars().any(char::is_control) {
+        return Err(err(KtError::InvalidInput(
+            "that doesn't look like a valid token or key".into(),
+        )));
+    }
+    state.secrets.set(kind, v).map_err(err)?;
+    tracing::info!(account = kind.account(), value = %source::mask(v), "credential saved");
+    state.engine.restart_sources().await.map_err(err)?;
+    Ok(secret_statuses(&state))
+}
+
+#[tauri::command]
+pub async fn clear_secret(state: State<'_, AppState>, kind: SecretKind) -> CmdResult<Vec<SecretStatus>> {
+    state.secrets.delete(kind).map_err(err)?;
+    tracing::info!(account = kind.account(), "credential removed");
+    state.engine.restart_sources().await.map_err(err)?;
+    Ok(secret_statuses(&state))
+}
+
+/// Opens one of a fixed set of help pages in the browser.
+#[tauri::command]
+pub fn open_link(app: AppHandle, link: String) -> CmdResult<()> {
+    let url = match link.as_str() {
+        "pulsoid_token" => source::pulsoid::TOKEN_PAGE,
+        "hyperate_api" => "https://www.hyperate.io/api",
+        _ => return Err(err(KtError::InvalidInput("unknown link".into()))),
+    };
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|e| err(KtError::Io(e.to_string())))
+}
+
+#[tauri::command]
 pub async fn test_sweep(state: State<'_, AppState>, on: bool) -> CmdResult<()> {
     state.engine.test_sweep(on).await.map_err(err)
 }
@@ -199,20 +264,33 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Cmd
     let snap = state.engine.snapshot();
     let cfg = state.engine.config();
     let info = app_info(&state).await;
+    let creds: Vec<String> = secret_statuses(&state)
+        .iter()
+        .map(|s| {
+            format!(
+                "{}: {}",
+                s.kind.account(),
+                if s.present { "saved" } else { "not set" }
+            )
+        })
+        .collect();
     let text = format!(
         "KittyTooth diagnostics\n\
          ======================\n\
-         version: {}\nplatform: {}\nconfig: {}\nlogs: {}\noverlay: {}\n\n\
+         version: {}\nplatform: {}\nconfig: {}\nlogs: {}\noverlay: {}\ncredentials (values never included): {}\n\n\
          -- engine snapshot --\n{}\n\n-- config --\n{}\n\n-- recent log --\n{}\n",
         info.version,
         info.platform,
         info.config_path,
         info.log_dir,
         info.overlay_url.as_deref().unwrap_or("off"),
+        creds.join(", "),
         serde_json::to_string_pretty(&snap).unwrap_or_default(),
         serde_json::to_string_pretty(&cfg).unwrap_or_default(),
         state.logging.tail(150),
     );
+    // Belt and braces: no stored secret may leave through the clipboard.
+    let text = crate::secrets::scrub(&text, state.secrets.as_ref());
     app.clipboard()
         .write_text(text.clone())
         .map_err(|e| err(KtError::Io(e.to_string())))?;

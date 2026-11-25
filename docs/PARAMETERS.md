@@ -17,6 +17,11 @@ messages (no bundles) to each enabled target (default `127.0.0.1:9000`).
 * When VRChat reports an avatar change via OSCQuery (`/avatar/change`), every parameter is
   re-sent immediately.
 * "Normalize range" defaults per preset (shown below) and can be overridden per target.
+* Every heart rate source (Bluetooth, Pulsoid, HypeRate, OSC input, demo) drives the same
+  parameters. With fallback on, the parameters follow whichever source is live; switching
+  doesn't send a disconnect unless neither source has data.
+* Data a source can't provide: **Battery** is not sent at all; **HRV** is sent as 0 (Pulsoid,
+  HypeRate and OSC input carry no RR intervals). Beats are timed from BPM for those sources.
 
 ## 1. KittyTooth (native)
 
@@ -107,3 +112,19 @@ Type conversion: **int** rounds, **float** is the raw value, **bool** is `true` 
 * `notify` = `false` when *Silent* is on (no notification sound).
 * Sent at most every 2 s (configurable upward), only when the text changes or every 20 s to stay
   visible, and only while connected.
+
+## OSC input (receiving)
+
+The *OSC input* source listens for a heart rate from another app and relays it through the
+presets above.
+
+| Setting | Default | Notes |
+|---|---|---|
+| Port | `9010` | UDP. Must differ from every output target port, or KittyTooth would hear itself. |
+| Address | `/avatar/parameters/HR` | A bare name like `HR` gets the `/avatar/parameters/` prefix. |
+| Accept from other devices | off | Off listens on `127.0.0.1` only; on listens on all interfaces. |
+
+Accepted values: `int`, `long`, `float` or `double`, taken as BPM (floats are rounded).
+Bundles are searched for the address; the last matching value wins. Values outside 25-250
+are rejected like any other reading.
+

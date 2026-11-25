@@ -1,4 +1,32 @@
-import type { BodySensorLocation, ConnState, Metric, Preset, SensorContact, Snapshot } from "./types";
+import type {
+  BodySensorLocation,
+  Capabilities,
+  ConnState,
+  Metric,
+  Preset,
+  SensorContact,
+  Snapshot,
+  SourceKind,
+} from "./types";
+
+export const SOURCE_ORDER: SourceKind[] = ["ble", "pulsoid", "hyperate", "osc", "demo"];
+
+export const SOURCE_INFO: Record<SourceKind, { name: string; tag: string; help: string }> = {
+  ble: { name: "Bluetooth sensor", tag: "ble", help: "A chest strap, armband or watch in heart rate broadcast mode." },
+  pulsoid: { name: "Pulsoid", tag: "pulsoid", help: "Heart rate from the Pulsoid app, through Pulsoid's real-time API." },
+  hyperate: { name: "HypeRate", tag: "hyperate", help: "Heart rate from the HypeRate app, by its device ID." },
+  osc: { name: "OSC input", tag: "osc", help: "Relay a heart rate another app sends to KittyTooth over OSC." },
+  demo: { name: "Demo strap", tag: "demo", help: "Simulated readings for trying KittyTooth without hardware." },
+};
+
+/** Readings the source can't provide, in display order ("hrv", "battery", "skin contact"). */
+export function missingFeatures(c: Capabilities): string[] {
+  const out: string[] = [];
+  if (!c.rr) out.push("hrv");
+  if (!c.battery) out.push("battery");
+  if (!c.contact) out.push("skin contact");
+  return out;
+}
 
 export const ZONE_NAMES = ["Rest", "Warm-up", "Fat burn", "Aerobic", "Threshold", "Max"] as const;
 

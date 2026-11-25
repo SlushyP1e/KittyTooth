@@ -1,4 +1,18 @@
-import type { BackendEvents, ConfigResult, Config, HistoryPoint, InitialState, OscLogEntry, UserError } from "../types";
+import type {
+  BackendEvents,
+  ConfigResult,
+  Config,
+  HistoryPoint,
+  InitialState,
+  OscLogEntry,
+  SecretKind,
+  SecretStatus,
+  SourceKind,
+  UserError,
+} from "../types";
+
+/** Help pages the backend may open in the browser. */
+export type HelpLink = "pulsoid_token" | "hyperate_api";
 
 export type Unlisten = () => void;
 
@@ -12,6 +26,11 @@ export interface Backend {
   connect(id: string, name: string): Promise<void>;
   disconnect(): Promise<void>;
   forget(): Promise<void>;
+  selectSource(kind: SourceKind): Promise<void>;
+  /** Stores a token/key in the OS credential store; returns masked statuses. */
+  setSecret(kind: SecretKind, value: string): Promise<SecretStatus[]>;
+  clearSecret(kind: SecretKind): Promise<SecretStatus[]>;
+  openLink(link: HelpLink): Promise<void>;
   testSweep(on: boolean): Promise<void>;
   resetSession(): Promise<void>;
   getHistory(sinceMs: number): Promise<HistoryPoint[]>;

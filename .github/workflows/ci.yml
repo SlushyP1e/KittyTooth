@@ -11,6 +11,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # Optional HypeRate developer key baked into release builds; never committed.
+  KITTYTOOTH_HYPERATE_KEY: ${{ secrets.HYPERATE_API_KEY }}
   LINUX_DEPS: libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
 
 jobs:

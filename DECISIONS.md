@@ -130,17 +130,127 @@ Findings that shaped the presets:
 * The heart is a monoline outline (pink stroke, 12% pink fill) so it reads as one line drawing;
   the beat is a 1.08 scale with a fading 6px glow driven per beat by WAAPI. Under reduced motion
   a 7px dot blinks instead.
-* Zones are distinguished by labels, not hues: one 4px track, current zone pink, lower zones pink
-  at 35%. The graph no longer has a coloured zone strip.
+* Zones: one 4px track. (Originally labels-only in pink; superseded by the user's request for
+  per-zone colours, see "Zone colours" below.) The graph no longer has a coloured zone strip.
 * Toggles only for true on/off; every multi-option setting (smoothing, theme, preset, disconnect
   behaviour, graph range) is a chip group or tab set with radiogroup semantics and arrow keys.
 * The tray icon draws charcoal digits on the accent colour (accent presets map to their dark
   theme values in `tray_icon::accent_rgb`); idle is a slate tile with light digits.
 
+## Heart rate sources (Pulsoid, HypeRate, OSC input, fallback)
+
+### Researched API facts (read 2026-11-25)
+
+**Pulsoid**, implemented to the official docs:
+* Real-time v2: <https://docs.pulsoid.net/heart-rate-and-sensor-data/read-data-via-websocket-v2>.
+  URL `wss://dev.pulsoid.net/api/v2/data/real_time`. The token goes in the `access_token` query
+  parameter (or `Authorization: Bearer`). `types` is a comma-separated list of `heart_rate`
+  (scope `data:heart_rate:read`), `battery_level` (`data:battery_level:read`) and
+  `ingestion_pause`. Messages: `{"type","timestamp" (ISO 8601),"heartRate":{"bpm"}}`,
+  `{"batteryLevel":{"percent"}}`, `{"ingestionPause":{"id","started_at","ends_at"}}`. Upgrade
+  statuses: 101 OK, 400 when the token lacks a scope for a requested type (error 6003), 401 when
+  the token is missing or invalid. The server closes the socket when the token is revoked or
+  expires. The docs say the connection "can be interrupted at any point" and to retry with
+  back-off.
+* v1 (legacy): <https://docs.pulsoid.net/heart-rate-and-sensor-data/read-heart-rate-via-websocket>,
+  `{"measured_at": ms, "data": {"heart_rate": n}}`. The parser accepts it too.
+* Tokens: manual tokens come from <https://pulsoid.net/ui/keys> ("Create new token"), which is a
+  BRO plan feature (paid or trial)
+  (<https://docs.pulsoid.net/getting-started/access-token-management/manual-token-issuing>).
+  Validation is `GET https://dev.pulsoid.net/api/v1/token/validate` with a Bearer header,
+  returning `{token, client_id, expires_in, profile_id, scopes}`
+  (<https://docs.pulsoid.net/getting-started/access-token-management/validate-authorization-token>).
+* Errors: <https://docs.pulsoid.net/reference/error-code-format>. The body is
+  `{"error_code","error_message"}`; for example 7005 `token_not_found` (401), 7006
+  `token_expired` (401), 7007 `premium_required` (402), 6003 `error_invalid_scope` (400).
+* Rate limits: **not documented** anywhere in the docs.
+
+**HypeRate**, implemented to the official WebSocket API document
+(<https://github.com/HypeRate/HypeRate-Websocket-API/blob/main/docs/WEBSOCKET_API.md>). It is
+linked from <https://developers.hyperate.io/>, whose live demo uses the same protocol.
+* URL `wss://app.hyperate.io/ws/:deviceId?token=API_KEY`: the device ID goes in the path and the
+  developer key in `token`.
+* After opening, send `{"topic":"hr:ID","event":"phx_join","payload":{},"ref":"1"}`. Updates
+  arrive as `{"topic":"hr:ID","event":"hr_update","payload":{"hr":75},"ref":null}`. Send the
+  heartbeat `{"event":"ping","payload":{"timestamp":ms}}` every **15 s**, and `phx_leave`
+  before closing. `phx_reply` "can safely be ignored".
+* Keys are requested at <https://www.hyperate.io/api> (free tier for research and indie
+  projects). The docs say never to commit or share keys.
+* **Not documented**: rate limits, connection limits, the device ID format, how an invalid key
+  or unknown device is reported, and the reply formats.
+
+### Choices where the docs are silent
+* Pulsoid: the source requests `heart_rate,battery_level`. If the token lacks the battery scope
+  (HTTP 400), it reconnects with `heart_rate` only. Upgrade 401/403 means bad token, 402 means
+  plan required, 429 means rate limited, and any other status is a temporary service error.
+* HypeRate: upgrade 401/403 means bad API key, 404 means unknown device, and 429 means rate
+  limited. A `phx_reply` with `status: "error"` to our join (ref "1") also means the device ID was
+  refused. Device IDs are accepted only as 2-32 characters of `[A-Za-z0-9_-]`, so they are safe
+  in a URL path.
+* Rate limits: since neither service documents limits, KittyTooth keeps one connection per
+  source and uses the Bluetooth back-off (1, 2, 4, 8, 10 s). An HTTP 429 raises the next delay
+  to at least 30 s.
+* Rejected credentials or IDs (bad token or key, plan required, invalid device ID, missing
+  setup) are not retried, matching Pulsoid's own client, which stops on unauthorized. The
+  source stays idle with a plain-language error until the user saves a new secret or changes
+  settings (`RestartSources`).
+* Silence: network sources may only send on change, so their link is torn down after
+  `max(stale timeout, 20 s)` without messages. Pulsoid's official client treats 30 s of silence
+  as offline. Data validity (OSC `Connected`) still uses the normal stale timeout. The OSC
+  input has no link, so silence only marks data stale.
+
+### Architecture
+* `HeartRateSource` (`crates/kittytooth-core/src/source/`): `kind()`, `capabilities()`,
+  `label()` and `connect(events)`. Every source emits `SensorEvent::Sample(HrSample)`, where
+  `HrSample` carries bpm, RR (ms), battery, contact (`Option<bool>`), energy, timestamp,
+  received instant and source kind. Bluetooth and demo decode `0x2A37` into `HrSample` inside
+  the session, so the engine never sees raw bytes. A `SourceFactory` builds sources from config
+  and secrets; tests swap the endpoints for a local mock server.
+* The engine runs two **slots**, main and backup, each with its own session, reconnect loop
+  and error. Exactly one slot is live, and only its samples reach the processor and OSC. The
+  standby slot's samples only update its own freshness. Switching sources is a command
+  (`SelectSource`), never a restart.
+* Fallback switches to the backup once the main source has had no valid reading for
+  `after_secs` (default 5) and the backup is delivering. It switches back once the main source
+  has delivered steadily for 3 s, to avoid flapping. A switch resets the spike filter and beat
+  scheduler, keeps session stats, and sends `Connected=false` only if the new live source has
+  no data. The backup stays connected ("hot standby") so takeover is instant.
+* Capabilities: Bluetooth and demo give RR, battery and contact; Pulsoid gives battery;
+  HypeRate and OSC give heart rate only. The UI shows missing items as "not available from this
+  source", never 0. OSC keeps its documented behaviour: Battery is omitted and HRV is 0.
+
+### Secrets
+* Tokens and keys go to the OS credential store through `keyring` v3: Windows Credential Manager
+  (`windows-native`), macOS Keychain, and Secret Service on Linux. Service `KittyTooth`,
+  accounts `pulsoid-token` and `hyperate-api-key`. The core only sees a `SecretStore` trait
+  (memory-backed in tests).
+* Never in `config.json`, never logged (URLs carrying tokens are not logged, and
+  `tungstenite`/`native_tls` stay at `warn` even in debug mode), masked in the UI (`••••` plus
+  the last 4 characters), and absent from Copy diagnostics, which also scrubs any stored value
+  as a safeguard.
+* HypeRate developer key: read at compile time from `KITTYTOOTH_HYPERATE_KEY` (`option_env!`),
+  which CI fills from the `HYPERATE_API_KEY` repository secret. A user override in the
+  credential store takes precedence. No key is in the repository.
+* TLS for WebSockets uses `native-tls`: SChannel on Windows (no extra build tools) and OpenSSL
+  on Linux (`libssl-dev` is already a CI dependency).
+
+### Zone colours (user request)
+* The user asked for the multi-colour zone bar back. Zones now have their own pastel tokens
+  (`--zone-0..5` in `tokens.css`, deeper values in the light theme). The current zone is shown at
+  full strength and slightly thicker; the others are at 40 %. This deliberately overrides the
+  redesign's single-accent rule for this one data encoding. The graph stays pink-only.
+
+### Also fixed
+* OSC output now uses plain non-blocking `std::net::UdpSocket` sends. Tokio's `try_send_to`
+  can return `WouldBlock` on a freshly bound socket before readiness is first observed, which
+  dropped the first few OSC messages under load.
+
 ## Stack deviations
 
 * None. Tauri 2, btleplug, rosc, tokio, serde, Svelte 5 + TS + Vite as specified. Additions:
   `mdns-sd` (OSCQuery mDNS), `tracing` + `tracing-appender` (rotating logs, 7 daily files),
-  Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`.
+  Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`, `opener`;
+  `tokio-tungstenite` (native-tls) for the Pulsoid/HypeRate WebSockets and `keyring` for
+  secrets.
 * `@playwright/test` is pinned to 1.63.0 to match the browser build available in the
   development environment; CI installs the matching Chromium.

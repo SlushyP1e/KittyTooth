@@ -108,3 +108,12 @@ describe("status and chatbox", () => {
     expect(renderChatbox("x".repeat(300), s)).toHaveLength(144);
   });
 });
+
+describe("sources", () => {
+  it("lists what a source can't provide", async () => {
+    const { missingFeatures, SOURCE_INFO, SOURCE_ORDER } = await import("./format");
+    expect(missingFeatures({ rr: true, battery: true, contact: true })).toEqual([]);
+    expect(missingFeatures({ rr: false, battery: true, contact: false })).toEqual(["hrv", "skin contact"]);
+    expect(SOURCE_ORDER.map((k) => SOURCE_INFO[k].tag)).toEqual(["ble", "pulsoid", "hyperate", "osc", "demo"]);
+  });
+});

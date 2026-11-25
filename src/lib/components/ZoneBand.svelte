@@ -1,8 +1,8 @@
 <script lang="ts">
   import { zoneName } from "../format";
 
-  // One thin track: current zone in full accent, lower zones at 35 %, higher zones empty.
-  // Zones are told apart by their labels, not by hue.
+  // One thin track with a colour per zone: the current zone at full strength (and a touch
+  // thicker), the others faded so the scale stays readable at a glance.
   let {
     bpm,
     maxHr,
@@ -23,16 +23,20 @@
       <div
         class="seg"
         class:current={active && i === zone}
-        class:lower={active && i < zone}
+        class:on={active}
+        style:--zc="var(--zone-{i})"
         style:left="{pos(edges[i])}%"
         style:width="calc({pos(edges[i + 1]) - pos(edges[i])}% - 2px)"
       ></div>
-      <span class="num mono" style:left="{pos(edges[i])}%" class:on={active && i === zone}>{i}</span>
+      <span class="num mono" style:left="{pos(edges[i])}%" style:--zc="var(--zone-{i})" class:on={active && i === zone}
+        >{i}</span
+      >
     {/each}
   </div>
   <p class="readout mono">
     {#if active && pct != null}
-      zone {zone} · {zoneName(zone).toLowerCase()} · {Math.round(pct)}% of {maxHr}
+      <span class="dot" style:--zc="var(--zone-{zone})" aria-hidden="true"></span>zone {zone} · {zoneName(zone).toLowerCase()}
+      · {Math.round(pct)}% of {maxHr}
     {:else}
       zone --
     {/if}
@@ -60,11 +64,13 @@
     background: var(--slate-3);
     transition: background 300ms;
   }
-  .seg.lower {
-    background: color-mix(in srgb, var(--pink) 35%, transparent);
+  .seg.on {
+    background: color-mix(in srgb, var(--zc) 40%, transparent);
   }
   .seg.current {
-    background: var(--pink);
+    background: var(--zc);
+    top: -1px;
+    height: 6px;
   }
   .num {
     position: absolute;
@@ -73,7 +79,16 @@
     color: var(--muted);
   }
   .num.on {
-    color: var(--pink);
+    color: var(--zc);
+  }
+  .dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 6px;
+    border-radius: 50%;
+    background: var(--zc);
+    vertical-align: 1px;
   }
   .readout {
     font-size: 12px;

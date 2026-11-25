@@ -57,4 +57,30 @@ describe("mock backend", () => {
     expect(toUserError("boom").code).toBe("unexpected");
     expect(toUserError(null).fix).toMatch(/diagnostics/);
   });
+
+  it("switches sources and keeps secrets masked", async () => {
+    vi.useFakeTimers();
+    mock = createMockBackend({ scenario: "demo" });
+    await mock.selectSource("pulsoid");
+    expect(mock.peek().error?.code).toBe("missing_credential");
+    expect(mock.peek().source).toBe("pulsoid");
+    const st = await mock.setSecret("pulsoid_token", "8c4da3ce-7ed7-4a19-a1f1-058498661e45");
+    expect(st.find((x) => x.kind === "pulsoid_token")).toEqual({
+      kind: "pulsoid_token",
+      present: true,
+      masked: "••••1e45",
+    });
+    expect(JSON.stringify(await mock.getState())).not.toContain("8c4da3ce");
+    await vi.advanceTimersByTimeAsync(1500);
+    const s = mock.peek();
+    expect(s.state).toBe("connected");
+    expect(s.live_source).toBe("pulsoid");
+    expect(s.capabilities).toEqual({ rr: false, battery: true, contact: false });
+    expect(s.hrv_ms).toBeNull();
+    await mock.setSecret("pulsoid_token", "bad");
+    expect(mock.peek().error?.code).toBe("bad_token");
+    await mock.selectSource("hyperate");
+    expect(mock.peek().error?.code).toBe("invalid_device_id");
+    await expect(mock.setSecret("hyperate_key", "  ")).rejects.toMatchObject({ code: "invalid_input" });
+  });
 });

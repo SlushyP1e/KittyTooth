@@ -77,6 +77,13 @@
   --amber: #d9a441;
   --red: #e06c75;
   --knob-on: #ffffff;
+  /* Heart rate zones: pastel hues, the one place colour encodes data. */
+  --zone-0: #6b7080;
+  --zone-1: #9cc3ff;
+  --zone-2: #8fdcb8;
+  --zone-3: #f2d27a;
+  --zone-4: #ffb38a;
+  --zone-5: #ff8fa3;
   color-scheme: dark;
 }
 
@@ -96,6 +103,12 @@
   --amber: #a87818;
   --red: #c2454f;
   --knob-on: #ffffff;
+  --zone-0: #a3a6ae;
+  --zone-1: #3f7fd9;
+  --zone-2: #2f9c6c;
+  --zone-3: #b8921c;
+  --zone-4: #d9703a;
+  --zone-5: #d64561;
   color-scheme: light;
 }
 

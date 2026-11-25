@@ -1,7 +1,7 @@
 import type { Backend, Unlisten } from "../api/backend";
 import { toUserError } from "../api/backend";
 import { defaultConfig, emptySnapshot } from "../defaults";
-import type { AppInfo, Config, DiscoveredDevice, Snapshot, UserError } from "../types";
+import type { AppInfo, Config, DiscoveredDevice, SecretKind, Snapshot, SourceKind, UserError } from "../types";
 import { HistoryBuffer } from "./history";
 
 export interface Toast {
@@ -103,6 +103,20 @@ export class AppStore {
       this.saving = "error";
       this.toastError(toUserError(e));
     }
+  }
+
+  /** Makes `kind` the main source; pending settings are saved first so it starts with them. */
+  async selectSource(kind: SourceKind): Promise<void> {
+    if (this.saving === "pending") await this.flushConfig();
+    await this.run((a) => a.selectSource(kind));
+  }
+
+  /** Saves a token/key to the OS credential store. Returns true on success. */
+  async saveSecret(kind: SecretKind, value: string | null): Promise<boolean> {
+    const r = await this.run((a) => (value == null ? a.clearSecret(kind) : a.setSecret(kind, value)));
+    if (!r) return false;
+    if (this.info) this.info = { ...this.info, secrets: r };
+    return true;
   }
 
   /** Runs a backend action, turning failures into an error toast. */

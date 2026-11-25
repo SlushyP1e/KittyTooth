@@ -18,13 +18,19 @@ export function defaultTarget(id = "vrchat", name = "VRChat"): OscTarget {
 
 export function defaultConfig(): Config {
   return {
-    schema_version: 2,
+    schema_version: 3,
     device: {
       last_device: null,
       auto_connect: true,
       show_all_devices: false,
       stale_timeout_secs: 5,
       demo_device: true,
+    },
+    source: {
+      active: "ble",
+      hyperate: { device_id: "" },
+      osc_input: { port: 9010, address: "/avatar/parameters/HR", lan: false },
+      fallback: { enabled: false, backup: "demo", after_secs: 5 },
     },
     processing: { smoothing: "off" },
     zones: { age: null, manual_max_hr: 190, thresholds: [50, 60, 70, 80, 90] },
@@ -78,6 +84,11 @@ export function emptySnapshot(): Snapshot {
     oscquery: { active: false, mdns: false, http_port: null, osc_port: null, error: null },
     latency: { last_us: 0, avg_us: 0, max_us: 0, samples: 0 },
     rejected_spikes: 0,
+    source: "ble",
+    live_source: null,
+    fallback_active: false,
+    capabilities: { rr: true, battery: true, contact: true },
+    sources: [],
     rejected_out_of_range: 0,
     packets: 0,
   };

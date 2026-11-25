@@ -8,16 +8,17 @@
   import Toasts from "./lib/components/Toasts.svelte";
   import LiveView from "./lib/views/LiveView.svelte";
   import DevicesView from "./lib/views/DevicesView.svelte";
+  import SourceView from "./lib/views/SourceView.svelte";
   import OscView from "./lib/views/OscView.svelte";
   import SettingsView from "./lib/views/SettingsView.svelte";
   import MiniView from "./lib/views/MiniView.svelte";
 
-  type View = "live" | "devices" | "osc" | "settings" | "mini";
+  type View = "live" | "source" | "devices" | "osc" | "settings" | "mini";
   type Dot = "live" | "ok" | "warn" | "err" | "idle";
 
   function parseHash(): View {
     const h = location.hash.replace(/^#\/?/, "");
-    return (["live", "devices", "osc", "settings", "mini"] as const).find((v) => v === h) ?? "live";
+    return (["live", "source", "devices", "osc", "settings", "mini"] as const).find((v) => v === h) ?? "live";
   }
 
   let view = $state<View>(parseHash());
@@ -40,7 +41,13 @@
       label: "Sensor",
       items: [
         { id: "live", label: "Live", dot: sensorDot, count: null as number | null },
-        { id: "devices", label: "Devices", dot: s.device ? sensorDot : ("idle" as Dot), count: s.scanning ? app.devices.length : null },
+        { id: "source", label: "Source", dot: sensorDot, count: null },
+        {
+          id: "devices",
+          label: "Devices",
+          dot: s.device && (s.source === "ble" || s.source === "demo") ? sensorDot : ("idle" as Dot),
+          count: s.scanning ? app.devices.length : null,
+        },
       ],
     },
     {
@@ -129,6 +136,8 @@
             {#key view}
               {#if view === "live"}
                 <LiveView {navigate} />
+              {:else if view === "source"}
+                <SourceView {navigate} />
               {:else if view === "devices"}
                 <DevicesView />
               {:else if view === "osc"}

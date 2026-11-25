@@ -1,11 +1,12 @@
 //! Shared application state and config side effects (overlay server, autostart, logging).
 
 use std::sync::atomic::AtomicBool;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use kittytooth_core::config::{Config, ConfigStore};
 use kittytooth_core::engine::EngineHandle;
 use kittytooth_core::overlay::{self, OverlayServer};
+use kittytooth_core::source::SecretStore;
 use kittytooth_core::UserError;
 use tauri::{AppHandle, Manager};
 
@@ -23,6 +24,7 @@ pub struct AppState {
     pub engine: EngineHandle,
     pub store: ConfigStore,
     pub logging: Logging,
+    pub secrets: Arc<dyn SecretStore>,
     pub overlay: tokio::sync::Mutex<OverlayState>,
     /// Shown once in the UI (e.g. config was unreadable and defaults were used).
     pub startup_notice: Mutex<Option<UserError>>,
@@ -34,12 +36,14 @@ impl AppState {
         engine: EngineHandle,
         store: ConfigStore,
         logging: Logging,
+        secrets: Arc<dyn SecretStore>,
         notice: Option<UserError>,
     ) -> Self {
         Self {
             engine,
             store,
             logging,
+            secrets,
             overlay: tokio::sync::Mutex::new(OverlayState::default()),
             startup_notice: Mutex::new(notice),
             quitting: AtomicBool::new(false),

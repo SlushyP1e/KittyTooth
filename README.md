@@ -21,8 +21,8 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
 <td><img src="docs/screenshots/settings.png" alt="Settings screen"></td>
 </tr>
 <tr>
+<td><img src="docs/screenshots/source-pulsoid.png" alt="Source page with Pulsoid and a backup"></td>
 <td><img src="docs/screenshots/osc-log.png" alt="OSC live log"></td>
-<td><img src="docs/screenshots/overlay-pill.png" alt="OBS overlay with pill backing"></td>
 </tr>
 </table>
 
@@ -34,6 +34,10 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
 * **Any standard BLE heart rate sensor** (Heart Rate Service 0x180D): Polar, Garmin, Coospo,
   Wahoo, Amazfit/Xiaomi and Galaxy Watch broadcast modes. Battery and body location when
   available. See [docs/DEVICES.md](docs/DEVICES.md).
+* **Five heart rate sources**: Bluetooth LE (default), **Pulsoid**, **HypeRate**, **OSC input**
+  (relay from another app) and a demo strap. One is active at a time; switching is instant.
+  Optional **fallback**: if the main source goes quiet, a backup takes over and hands back
+  when the main one recovers.
 * **Set and forget**: remembers your sensor, connects on launch, reconnects forever with
   back-off (1, 2, 4, 8, 10 s...) until you press Disconnect, detects stale data.
 * **Clean data**: rejects impossible values and one-off spikes, optional smoothing, session
@@ -68,6 +72,29 @@ Requirements: Windows 10/11 with Bluetooth 4.0+ (built-in or a USB dongle).
    **Send test sweep** to watch your avatar react, even without wearing the strap.
 
 No sensor yet? Click **Try the demo strap** on the Live screen.
+
+## Heart rate sources
+
+Pick one on the **Source** page. The Live screen shows which one is feeding readings
+(`ble`, `pulsoid`, `hyperate`, `osc`, `demo`), and readings a source can't provide (HRV,
+battery, skin contact) show as *not available from this source* rather than 0.
+
+| Source | What you need | Provides |
+|---|---|---|
+| Bluetooth | A strap or watch in broadcast mode, picked on **Devices** | HR, RR/HRV, battery, contact |
+| Pulsoid | A Pulsoid access token: press **Get token** (opens pulsoid.net/ui/keys, BRO plan or trial), paste it | HR, monitor battery |
+| HypeRate | Your HypeRate device ID (shown in the HypeRate app) | HR |
+| OSC input | Another app sending an int or float to KittyTooth's port (default `9010`, address `/avatar/parameters/HR`) | HR |
+| Demo | Nothing | Everything (simulated) |
+
+Tokens and keys are stored in the **Windows Credential Manager** (service `KittyTooth`), never
+in `config.json`. They are masked in the UI, never logged, and left out of *Copy diagnostics*.
+Network sources reconnect with the same back-off as Bluetooth; a rejected token, key or device
+ID stops retrying (with a plain-language message) until you change it.
+
+**Fallback**: turn on *Fall back to a backup source*, pick the backup and how many seconds the
+main source may be quiet. The backup stays connected so it can take over instantly; KittyTooth
+switches back once the main source has delivered steadily for 3 seconds.
 
 ## Avatar setup
 
@@ -167,7 +194,11 @@ npm run check && npm run lint && npm test && npm run e2e
 npm run screenshots        # regenerate README screenshots
 ```
 
-Linux needs `libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev librsvg2-dev`.
+Linux needs `libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev`.
+
+The HypeRate source needs a developer API key. Builds read it at compile time from
+`KITTYTOOTH_HYPERATE_KEY` (CI passes the `HYPERATE_API_KEY` repository secret); without it,
+users paste their own key on the Source page. Never commit a key.
 Architecture and milestones: [PLAN.md](PLAN.md). Design decisions: [DECISIONS.md](DECISIONS.md).
 Requirement coverage: [CHECKLIST.md](CHECKLIST.md).
 

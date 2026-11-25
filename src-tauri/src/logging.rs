@@ -18,9 +18,14 @@ pub struct Logging {
 
 fn filter(debug: bool) -> EnvFilter {
     if debug {
-        EnvFilter::new("info,kittytooth=debug,kittytooth_lib=debug,kittytooth_core=debug")
+        // WebSocket/TLS crates stay at warn even in debug mode: request lines carry tokens.
+        EnvFilter::new(
+            "info,kittytooth=debug,kittytooth_lib=debug,kittytooth_core=debug,tungstenite=warn,tokio_tungstenite=warn,native_tls=warn",
+        )
     } else {
-        EnvFilter::new("info,mdns_sd=warn,btleplug=warn")
+        EnvFilter::new(
+            "info,mdns_sd=warn,btleplug=warn,tungstenite=warn,tokio_tungstenite=warn,native_tls=warn",
+        )
     }
 }
 

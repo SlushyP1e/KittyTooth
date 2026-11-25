@@ -3,7 +3,15 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import type { Backend, Unlisten } from "./backend";
 import { toUserError } from "./backend";
-import type { BackendEvents, Config, ConfigResult, HistoryPoint, InitialState, OscLogEntry } from "../types";
+import type {
+  BackendEvents,
+  Config,
+  ConfigResult,
+  HistoryPoint,
+  InitialState,
+  OscLogEntry,
+  SecretStatus,
+} from "../types";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   try {
@@ -23,6 +31,10 @@ export function createTauriBackend(): Backend {
     connect: (id, name) => call("connect", { id, name }),
     disconnect: () => call("disconnect"),
     forget: () => call("forget"),
+    selectSource: (kind) => call("select_source", { kind }),
+    setSecret: (kind, value) => call<SecretStatus[]>("set_secret", { kind, value }),
+    clearSecret: (kind) => call<SecretStatus[]>("clear_secret", { kind }),
+    openLink: (link) => call("open_link", { link }),
     testSweep: (on) => call("test_sweep", { on }),
     resetSession: () => call("reset_session"),
     getHistory: (sinceMs) => call<HistoryPoint[]>("get_history", { sinceMs }),

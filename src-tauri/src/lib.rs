@@ -3,6 +3,7 @@
 
 mod commands;
 mod logging;
+mod secrets;
 mod state;
 mod tray;
 mod windows;
@@ -15,6 +16,7 @@ use kittytooth_core::config::ConfigStore;
 use kittytooth_core::engine::{self, EngineEvent, EngineHandle, EngineOptions};
 use kittytooth_core::sensor::mock::MockBackend;
 use kittytooth_core::sensor::{CompositeBackend, HeartRateBackend};
+use kittytooth_core::source::{DefaultFactory, SecretStore};
 use tauri::{Emitter, Manager, RunEvent};
 use tokio::sync::broadcast::error::RecvError;
 
@@ -34,6 +36,7 @@ pub fn run() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::set_config,
@@ -42,6 +45,11 @@ pub fn run() {
             commands::connect,
             commands::disconnect,
             commands::forget,
+            commands::select_source,
+            commands::get_secrets,
+            commands::set_secret,
+            commands::clear_secret,
+            commands::open_link,
             commands::test_sweep,
             commands::reset_session,
             commands::get_history,
@@ -93,6 +101,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         tracing::warn!(error = %e, "config unreadable; defaults used and a backup kept");
     }
     let config = report.config.clone();
+    let secrets: Arc<dyn SecretStore> = Arc::new(secrets::KeyringSecrets);
 
     let engine: EngineHandle = tauri::async_runtime::block_on(async {
         let real: Option<Arc<dyn HeartRateBackend>> =
@@ -108,15 +117,22 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             Arc::new(MockBackend::demo()),
             config.device.demo_device,
         ));
-        engine::start(
+        let factory = Arc::new(DefaultFactory::new(backend, secrets.clone()));
+        engine::start_with_factory(
             config.clone(),
             Some(store.clone()),
-            backend,
+            factory,
             EngineOptions::default(),
         )
     });
 
-    let state = AppState::new(engine.clone(), store, logging, report.recovered.map(|e| e.user()));
+    let state = AppState::new(
+        engine.clone(),
+        store,
+        logging,
+        secrets,
+        report.recovered.map(|e| e.user()),
+    );
     app.manage(state);
     tauri::async_runtime::block_on(state::apply_overlay(&handle, &config));
     state::sync_autostart(&handle, config.ui.autostart);

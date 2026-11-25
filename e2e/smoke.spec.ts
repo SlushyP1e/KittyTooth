@@ -65,7 +65,8 @@ test("keyboard navigation reaches every screen with visible focus", async ({ pag
   await expect(page.getByTestId("bpm")).toBeVisible();
   await page.keyboard.press("Tab"); // skip link
   await expect(page.getByText("Skip to content")).toBeFocused();
-  await page.keyboard.press("Tab");
+  await page.keyboard.press("Tab"); // Live
+  await page.keyboard.press("Tab"); // Source
   await page.keyboard.press("Tab"); // Devices
   const focused = page.locator(":focus");
   await expect(focused).toHaveText(/Devices/);
@@ -73,6 +74,30 @@ test("keyboard navigation reaches every screen with visible focus", async ({ pag
   expect(outline).toBe("solid");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("heading", { name: "Devices" })).toBeVisible();
+});
+
+test("source page switches sources and keeps the token masked", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/#/source");
+  await expect(page.getByRole("heading", { name: "Source", exact: true })).toBeVisible();
+  const list = page.getByRole("list", { name: "Heart rate sources" });
+  for (const tag of ["ble", "pulsoid", "hyperate", "osc", "demo"]) {
+    await expect(list.getByText(tag, { exact: true })).toBeVisible();
+  }
+  await page.getByRole("button", { name: "Use Pulsoid" }).click();
+  await expect(page.getByRole("alert").first()).toContainText("Pulsoid token needed");
+  await expect(page.getByRole("button", { name: "Get token" })).toBeVisible();
+  await page.getByLabel("Access token").fill("8c4da3ce-7ed7-4a19-a1f1-058498661e45");
+  await page.getByRole("button", { name: "Save token" }).click();
+  await expect(page.getByLabel("Saved token")).toHaveText("••••1e45");
+  await expect(page.getByText("8c4da3ce")).toHaveCount(0);
+  await page.getByRole("switch", { name: "Fall back to a backup source" }).click();
+  await expect(page.getByRole("radiogroup", { name: "Backup source" })).toBeVisible();
+  await page.goto("/#/live");
+  await expect(page.getByTestId("bpm")).toHaveText(/^\d{2,3}$/, { timeout: 5000 });
+  await expect(page.getByTitle("Source")).toHaveText("pulsoid");
+  await expect(page.getByText("not available from this source").first()).toBeVisible();
+  expect(errors).toEqual([]);
 });
 
 test("devices screen scans, lists and connects", async ({ page }) => {

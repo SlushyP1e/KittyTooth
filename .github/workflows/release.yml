@@ -10,6 +10,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # Optional HypeRate developer key baked into release builds; never committed.
+  KITTYTOOTH_HYPERATE_KEY: ${{ secrets.HYPERATE_API_KEY }}
 
 jobs:
   windows:

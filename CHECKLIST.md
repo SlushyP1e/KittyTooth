@@ -86,6 +86,26 @@ Each line of the spec, where it is implemented, and how it is verified.
 - [x] Sidebar groups, status dots, hairline lists, settings rows, chips vs toggles, monoline heart, 4px zone track, restyled graph and stats: views and components under `src/lib`
 - [x] Screenshots dark/light at 1280 and 900 px plus mini and overlay: `e2e/screenshots.spec.ts` -> `docs/screenshots`
 
+## Heart rate sources (follow-up)
+- [x] Bluetooth LE stays the default source: `core/config.rs` (`SourceConfig::active` defaults to `ble`; v2->v3 migration keeps demo users on demo, test `migrates_v2_source`)
+- [x] Pulsoid v2 WebSocket with access token, Get token button + paste field: `core/source/pulsoid.rs`, `SourceView.svelte`, `commands.rs` (`open_link`, `set_secret`); fixtures `tests/fixtures/pulsoid_*.json`; tests `sources.rs` `pulsoid_*`
+- [x] HypeRate WebSocket with developer key + device ID; key from `KITTYTOOTH_HYPERATE_KEY` at build time with user override; no key committed: `core/source/hyperate.rs`, `source/mod.rs` (`builtin_hyperate_key`), workflows; tests `hyperate_*`
+- [x] OSC input on a configurable UDP port and address (int/float): `core/source/osc_input.rs`; tests `osc_input_relays_heart_rate`, `osc_input_port_in_use_is_explained`
+- [x] Mock/demo source: `SourceKind::Demo` via the mock backend
+- [x] Docs read first; endpoints, auth, formats, rate limits with links: DECISIONS.md "Heart rate sources"
+- [x] One `HeartRateSource` trait, one sample type (bpm, RR, battery, contact, timestamp, source id): `core/source/mod.rs` (`HrSample`, `SensorEvent::Sample`)
+- [x] Exactly one active source, chosen on the Source page, instant switch without restart: `engine.rs` (`SelectSource`, `reconcile`); test `selecting_a_source_switches_instantly`; e2e "source page switches sources..."
+- [x] Optional fallback after N s stale, switch back on recovery, live source shown: `engine.rs` (`evaluate_live`, `switch_live`); test `fallback_switches_to_backup_and_back`; Live tag `backup`, Source page roles
+- [x] Network sources reconnect with the Bluetooth backoff; plain errors for bad token, invalid device ID, offline, rate limited: `engine.rs` (`fail_slot`), `error.rs`; tests `pulsoid_bad_token_stops_retrying_with_clear_error`, `pulsoid_reconnects_with_backoff_after_close`, `pulsoid_offline_is_reported_and_retried`, `hyperate_rejected_key_and_unknown_device`, unit `upgrade_errors`
+- [x] Missing features shown as "not available from this source", never 0: `Snapshot.capabilities`, `LiveView.svelte`; e2e checks the text; test asserts `hrv_ms == None` for Pulsoid
+- [x] Tokens/keys in the OS credential store (keyring), masked in UI and logs, excluded from diagnostics: `src-tauri/src/secrets.rs` (`KeyringSecrets`, `scrub` + test), `commands.rs` (`copy_diagnostics`), `logging.rs` filters, `source::mask` + test `masking`; e2e asserts the token never appears
+- [x] Source list as a hairline list with mono kind tags and status dots; Live shows the active source tag: `SourceView.svelte`, `LiveView.svelte`; screenshots `docs/screenshots/source*.png`
+- [x] Fixture parsing tests per network API: `pulsoid.rs` and `hyperate.rs` unit tests over `tests/fixtures/*`
+- [x] Mock WebSocket server integration tests (reconnect, auth failure, stale): `crates/kittytooth-core/tests/sources.rs`
+- [x] OSC input test with a UDP sender; fallback test with two mock sources: same file
+- [x] README, docs/PARAMETERS.md, CHECKLIST.md updated
+- [x] Multi-colour zone bar restored (user request): `ZoneBand.svelte`, `--zone-*` tokens
+
 ## Needs real hardware on Windows
 1. Real straps and watches (Polar, Garmin, Coospo, Wahoo, Amazfit/Xiaomi, Galaxy Watch apps): scan, parse, battery, location, reconnect.
 2. Radio off / adapter missing / device held by another app messages from WinRT.
@@ -93,3 +113,6 @@ Each line of the spec, where it is implemented, and how it is verified.
 4. Tray icon rendering and menu; start with Windows; start minimized.
 5. VRChat OSCQuery discovery and avatar-change resend in a live VRChat session.
 6. NSIS install/uninstall and the portable exe on a clean Windows 11 machine.
+7. Pulsoid and HypeRate against the live services with real accounts (token page, BRO-plan
+   token, a real HypeRate device ID and key); how HypeRate reports bad keys/IDs is undocumented.
+8. Windows Credential Manager storage (save, replace, remove a token; survives restart).
