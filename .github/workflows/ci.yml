@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  LINUX_DEPS: libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev libssl-dev patchelf
+
+jobs:
+  rust:
+    name: Rust lint + test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Placeholder frontend (Tauri embeds dist/ at compile time)
+        run: mkdir -p dist && echo '<!doctype html><title>KittyTooth</title>' > dist/index.html
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --workspace
+
+  rust-windows:
+    name: Rust test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Placeholder frontend
+        shell: bash
+        run: mkdir -p dist && echo '<!doctype html><title>KittyTooth</title>' > dist/index.html
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test -p kittytooth-core
+
+  frontend:
+    name: Frontend check, lint, unit + e2e
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: svelte-check
+        run: npm run check
+      - name: eslint
+        run: npm run lint
+      - name: vitest
+        run: npm test
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: Playwright smoke tests
+        run: npm run e2e -- --trace off
+      - name: Screenshots (mock backend)
+        run: npm run screenshots -- --trace off
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: docs/screenshots/
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+
+  build-windows:
+    name: Build Windows (NSIS + portable)
+    needs: [rust, frontend]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Tauri build
+        run: npx tauri build --bundles nsis
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          $v = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          New-Item -ItemType Directory -Force out | Out-Null
+          Copy-Item target/release/bundle/nsis/*.exe out/
+          Copy-Item target/release/KittyTooth.exe "out/KittyTooth_${v}_x64_portable.exe"
+          Get-ChildItem out | ForEach-Object { "{0}  {1}" -f (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name } | Out-File -Encoding ascii out/SHA256SUMS-windows.txt
+          Get-ChildItem out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kittytooth-windows
+          path: out/
+
+  build-linux:
+    name: Build Linux (AppImage)
+    needs: [rust, frontend]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System libraries
+        run: sudo apt-get update && sudo apt-get install -y $LINUX_DEPS
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Tauri build
+        run: npx tauri build --bundles appimage
+      - name: Collect artifacts
+        run: |
+          mkdir -p out
+          cp target/release/bundle/appimage/*.AppImage out/
+          (cd out && sha256sum * > SHA256SUMS-linux.txt)
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kittytooth-linux
+          path: out/

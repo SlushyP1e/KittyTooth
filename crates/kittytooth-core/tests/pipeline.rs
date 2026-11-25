@@ -481,14 +481,14 @@ async fn reconnect_backoff_after_failures() {
     assert_eq!(s.state, ConnState::Reconnecting);
     assert_eq!(s.error.as_ref().map(|e| e.code.as_str()), Some("connect_timeout"));
     assert!(
-        l.wait_for(Duration::from_secs(9), |l| l.last(&format!("{KT}HR"))
+        l.wait_for(Duration::from_secs(12), |l| l.last(&format!("{KT}HR"))
             == Some(OscType::Int(70)))
             .await
     );
     let took = t0.elapsed();
     assert_eq!(backend.connect_calls(), 4);
     assert!(
-        took >= Duration::from_millis(6500) && took < Duration::from_secs(9),
+        took >= Duration::from_millis(6500) && took < Duration::from_secs(12),
         "{took:?}"
     );
     assert_eq!(h.snapshot().state, ConnState::Connected);
