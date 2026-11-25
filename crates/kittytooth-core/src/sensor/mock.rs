@@ -234,11 +234,7 @@ impl HeartRateBackend for MockBackend {
             .find(|d| d.id == id)
             .cloned()
             .ok_or_else(|| KtError::DeviceNotFound(id.to_string()))?;
-        if self
-            .fail_next
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-            .is_ok()
-        {
+        if take_one(&self.fail_next) {
             return Err(KtError::ConnectTimeout(dev.name.clone()));
         }
         if !dev.has_hr_service {
@@ -453,6 +449,19 @@ async fn run_demo(started: Instant, strap: bool, events: mpsc::Sender<SensorEven
             return;
         }
     }
+}
+
+/// Atomically decrements `n` if it is above zero; true when a unit was taken.
+/// (A CAS loop rather than `fetch_update`, which is deprecated on newer toolchains.)
+fn take_one(n: &std::sync::atomic::AtomicU32) -> bool {
+    let mut cur = n.load(Ordering::SeqCst);
+    while cur > 0 {
+        match n.compare_exchange_weak(cur, cur - 1, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return true,
+            Err(actual) => cur = actual,
+        }
+    }
+    false
 }
 
 #[cfg(test)]
