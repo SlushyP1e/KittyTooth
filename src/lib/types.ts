@@ -281,6 +281,32 @@ export interface Config {
   };
   overlay: { enabled: boolean; port: number };
   debug: { log_latency: boolean };
+  updates: UpdateConfig;
+}
+
+export interface UpdateConfig {
+  /** Check for a new version on launch and every 6 hours. Never installs by itself. */
+  auto_check: boolean;
+}
+
+/** How this copy was installed: the portable exe can't replace itself. */
+export type InstallKind = "installer" | "app_image" | "portable";
+
+/** An available update (Rust: kittytooth_core::update::UpdateInfo). */
+export interface UpdateInfo {
+  current: string;
+  version: string;
+  notes: string | null;
+  date: string | null;
+  install_kind: InstallKind;
+  /** False for portable copies: open the release page instead of installing. */
+  can_install: boolean;
+  release_url: string;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
 }
 
 export interface AppInfo {
@@ -319,4 +345,5 @@ export interface BackendEvents {
   devices: DiscoveredDevice[];
   config: Config;
   alert: AlertEvent;
+  update_progress: UpdateProgress;
 }

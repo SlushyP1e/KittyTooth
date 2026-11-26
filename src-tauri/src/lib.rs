@@ -6,6 +6,7 @@ mod logging;
 mod secrets;
 mod state;
 mod tray;
+mod updates;
 mod windows;
 
 use std::sync::atomic::Ordering;
@@ -39,6 +40,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::set_config,
@@ -64,6 +67,9 @@ pub fn run() {
             commands::open_mini,
             commands::close_mini,
             commands::show_main,
+            updates::check_update,
+            updates::install_update,
+            updates::open_release,
         ])
         .setup(|app| {
             setup(app)?;

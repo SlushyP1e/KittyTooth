@@ -245,11 +245,28 @@ linked from <https://developers.hyperate.io/>, whose live demo uses the same pro
   can return `WouldBlock` on a freshly bound socket before readiness is first observed, which
   dropped the first few OSC messages under load.
 
+## In-app updates
+
+* `tauri-plugin-updater` polls `latest.json` from the latest GitHub release on launch and
+  every 6 hours. The check and install run in Rust commands (`src-tauri/src/updates.rs`), not
+  the plugin's JS API, so the version rule (stable builds never get pre-releases) and the
+  portable vs installed decision live in `kittytooth-core::update` with unit tests.
+* The release workflow builds with `tauri build` directly, not tauri-action, so the publish
+  job writes `latest.json` itself from the `.sig` files. Signing is optional: without the
+  `TAURI_SIGNING_PRIVATE_KEY` secret the release still ships, minus the update files.
+* Portable copies are detected by the missing NSIS `uninstall.exe` next to the exe (Linux:
+  no `$APPIMAGE`). They get a release page link, since a running exe can't replace itself.
+  Until a real public key replaces the placeholder in `tauri.conf.json`, every copy behaves
+  this way.
+* Installing needs a click, and a second one while heart rate is live. Release notes are
+  shown as plain text, never as HTML.
+
 ## Stack deviations
 
 * None. Tauri 2, btleplug, rosc, tokio, serde, Svelte 5 + TS + Vite as specified. Additions:
   `mdns-sd` (OSCQuery mDNS), `tracing` + `tracing-appender` (rotating logs, 7 daily files),
-  Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`, `opener`;
+  Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`, `opener`,
+  `notification`, `updater`; `semver` for update version checks;
   `tokio-tungstenite` (native-tls) for the Pulsoid/HypeRate WebSockets and `keyring` for
   secrets.
 * `@playwright/test` is pinned to 1.63.0 to match the browser build available in the

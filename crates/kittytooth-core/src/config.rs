@@ -31,6 +31,7 @@ pub struct Config {
     pub ui: UiConfig,
     pub overlay: OverlayConfig,
     pub debug: DebugConfig,
+    pub updates: UpdateConfig,
 }
 
 impl Default for Config {
@@ -46,6 +47,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             overlay: OverlayConfig::default(),
             debug: DebugConfig::default(),
+            updates: UpdateConfig::default(),
         }
     }
 }
@@ -393,6 +395,19 @@ pub struct DebugConfig {
     pub log_latency: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// Check GitHub for a new version on launch and every 6 hours. Never installs by itself.
+    pub auto_check: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { auto_check: true }
+    }
+}
+
 impl Config {
     /// Clamps every value into its valid range. Returns `self` for chaining.
     pub fn sanitized(mut self) -> Self {
@@ -671,6 +686,15 @@ mod tests {
         assert_eq!(c.osc.max_rate, 20);
         assert_eq!(c.device.stale_timeout_secs, 5);
         assert_eq!(c.ui.theme, Theme::Dark);
+        assert!(c.updates.auto_check);
+    }
+
+    #[test]
+    fn update_check_defaults_on_for_older_files() {
+        let (c, _) = ConfigStore::parse(r#"{"schema_version":3,"ui":{"theme":"light"}}"#).unwrap();
+        assert!(c.updates.auto_check);
+        let (c, _) = ConfigStore::parse(r#"{"schema_version":3,"updates":{"auto_check":false}}"#).unwrap();
+        assert!(!c.updates.auto_check);
     }
 
     #[test]

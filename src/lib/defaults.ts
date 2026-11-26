@@ -70,6 +70,7 @@ export function defaultConfig(): Config {
     },
     overlay: { enabled: true, port: 9123 },
     debug: { log_latency: false },
+    updates: { auto_check: true },
   };
 }
 

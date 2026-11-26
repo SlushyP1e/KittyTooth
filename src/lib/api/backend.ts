@@ -8,6 +8,7 @@ import type {
   SecretKind,
   SecretStatus,
   SourceKind,
+  UpdateInfo,
   UserError,
 } from "../types";
 
@@ -45,6 +46,12 @@ export interface Backend {
   closeMini(): Promise<void>;
   showMain(): Promise<void>;
   startDrag(): Promise<void>;
+  /** Asks GitHub for a newer version. Null when up to date. Never installs. */
+  checkUpdate(): Promise<UpdateInfo | null>;
+  /** Downloads, verifies and installs the update from the last check, then restarts. */
+  installUpdate(): Promise<void>;
+  /** Opens the GitHub release page for `version` (how portable copies update). */
+  openRelease(version: string): Promise<void>;
   on<K extends keyof BackendEvents>(event: K, cb: (payload: BackendEvents[K]) => void): Promise<Unlisten>;
 }
 
