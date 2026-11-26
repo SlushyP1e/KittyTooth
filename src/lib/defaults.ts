@@ -22,6 +22,8 @@ export function defaultSteamVr(): SteamVrConfig {
     attach: "left_wrist",
     size: "medium",
     opacity: 90,
+    fade: true,
+    fade_angle: "normal",
     haptics: true,
     haptics_hand: "both",
   };

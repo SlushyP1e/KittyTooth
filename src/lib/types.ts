@@ -218,6 +218,7 @@ export type GraphRange = "60s" | "5m" | "session";
 export type VrAttach = "left_wrist" | "right_wrist" | "hud";
 export type VrSize = "small" | "medium" | "large";
 export type VrHand = "left" | "right" | "both";
+export type VrFadeAngle = "narrow" | "normal" | "wide";
 
 export interface SteamVrConfig {
   enabled: boolean;
@@ -227,6 +228,9 @@ export interface SteamVrConfig {
   size: VrSize;
   /** Percent, 20..100. */
   opacity: number;
+  /** Fade a wrist overlay out unless you look at it (alerts always show). */
+  fade: boolean;
+  fade_angle: VrFadeAngle;
   /** Buzz the controllers when an alert fires or reminds. */
   haptics: boolean;
   haptics_hand: VrHand;

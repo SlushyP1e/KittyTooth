@@ -265,6 +265,16 @@ linked from <https://developers.hyperate.io/>, whose live demo uses the same pro
   `SetOverlayRaw` at most every 250 ms and only when it changes). The bundled fonts are woff2,
   which would need a decoder, so digits and the few labels (BPM, HIGH, LOW, TEST) are rounded
   strokes with distance-field anti-aliasing, and the logo is the cat-head path from `Logo.svelte`.
+* **No flicker on updates: two overlays, double-buffered.** Re-uploading one overlay with
+  `SetOverlayRaw` blanked it for a frame in the headset. The new image now goes to a hidden twin
+  overlay at the same pose, which is shown with a higher sort order; the old one is hidden 60 ms
+  later (a few compositor frames). Uploads happen only when the rendered pixels differ, at most
+  every 250 ms.
+* **Fade when not looking** (wrist): every ~25 ms the thread reads the HMD and controller poses
+  (`GetDeviceToAbsoluteTrackingPose`), works out the overlay's world pose (controller x attach
+  offset), and maps the angle from the view centre (smoothstep between 20° and 38° for "normal")
+  and the card's facing angle to a target alpha, eased over 0.2 s and multiplied by the opacity
+  setting. Active alerts force full visibility. The math is in `steamvr/fade.rs` with unit tests.
 * **Haptics use the legacy `TriggerHapticPulse`** (pulses of up to 4 ms, one per 5 ms, played as
   a 90 ms + 70 ms "lub-dub"). The SteamVR Input alternative needs an action manifest and default
   bindings per controller type.

@@ -191,6 +191,9 @@ SteamVR itself. Turn it on in **Settings → SteamVR**:
   down at your hand) or **in view** (always visible, a little below eye level). Choose the size
   and opacity. During a heart rate alert it turns **red** (high) or **amber** (low) and says
   *HIGH* or *LOW*.
+* **Fade when not looking** (on by default, wrist only): like a watch, the wrist overlay fades in
+  when you look at it and out when you look away. *Look angle* sets how close to the middle of
+  your view it has to be (narrow, normal, wide). Alerts always show, wherever you look.
 * **Buzz on alerts**: a short double pulse, like a heartbeat, on the left, right or both
   controllers when an alert fires and on each reminder. It follows your *Alerts* settings, so turn
   alerts on first. *Test alert* tries both the red overlay and the buzz.

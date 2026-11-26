@@ -6,7 +6,7 @@
   import { ACCENT_PRESETS, isCustomAccent } from "../theme";
   import StatusChip from "../components/StatusChip.svelte";
   import { ZONE_NAMES, steamVrStatus } from "../format";
-  import type { Motion, Smoothing, Theme, VrAttach, VrHand, VrSize } from "../types";
+  import type { Motion, Smoothing, Theme, VrAttach, VrFadeAngle, VrHand, VrSize } from "../types";
 
   const c = $derived(app.config);
   const s = $derived(app.snapshot);
@@ -407,6 +407,34 @@
             />
           </div>
         </div>
+        {#if vr.attach !== "hud"}
+          <Toggle
+            label="Fade when not looking"
+            hint="Like a watch: the wrist overlay fades in when you look at it and out when you look away. Alerts always show."
+            checked={vr.fade}
+            onchange={(v) => app.updateConfig((cfg) => (cfg.steamvr.fade = v))}
+          />
+          {#if vr.fade}
+            <div class="srow">
+              <div class="stext">
+                <span class="slabel">Look angle</span>
+                <p class="shelp">How close to the middle of your view it must be to show.</p>
+              </div>
+              <div class="sctrl">
+                <Choice
+                  label="Look angle"
+                  value={vr.fade_angle}
+                  options={[
+                    { value: "narrow", label: "narrow" },
+                    { value: "normal", label: "normal" },
+                    { value: "wide", label: "wide" },
+                  ]}
+                  onchange={(v: VrFadeAngle) => app.updateConfig((cfg) => (cfg.steamvr.fade_angle = v))}
+                />
+              </div>
+            </div>
+          {/if}
+        {/if}
         <Toggle
           label="Buzz on alerts"
           hint="A heartbeat-like double pulse when a heart rate alert fires or reminds you. Uses the alert settings above; Test alert tries it."
