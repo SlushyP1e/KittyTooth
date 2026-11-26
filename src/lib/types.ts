@@ -210,7 +210,8 @@ export type Metric =
   | "battery"
   | "session_min"
   | "session_avg"
-  | "session_max";
+  | "session_max"
+  | "alert";
 export type DisconnectBehavior = "hold_last" | "send_zero";
 export type Motion = "on" | "reduced" | "system";
 export type Theme = "dark" | "light" | "system";

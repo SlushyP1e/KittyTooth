@@ -41,6 +41,7 @@ Prefix: `/avatar/parameters/KittyTooth/`
 | `/avatar/parameters/KittyTooth/Zone` | int | 0-5 | Heart rate zone (0 = below zone 1) |
 | `/avatar/parameters/KittyTooth/HRV` | float | 0..1 | RMSSD over 30 s, 0-200 ms mapped to 0..1 (0 when unavailable) |
 | `/avatar/parameters/KittyTooth/Battery` | float | 0..1 | Sensor battery (only sent if the sensor reports it) |
+| `/avatar/parameters/KittyTooth/Alert` | int | 0-2 | Heart rate alert: 0 none, 1 high, 2 low (Settings → Alerts; *Test alert* sends 1 for 8 s) |
 
 ## 2. HRtoVRChat compatible
 
@@ -98,6 +99,7 @@ spaces or `# * , ? [ ] { }`.
 | HRV 0..1 | 0..1 | 0-200 ms |
 | Battery 0..1 | 0..1 | |
 | Session min / average / max | 0-250 | |
+| Alert | 0-2 | 0 none, 1 high, 2 low |
 
 Type conversion: **int** rounds, **float** is the raw value, **bool** is `true` when the value is
 ≥ 0.5.
