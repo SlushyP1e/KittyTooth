@@ -31,6 +31,6 @@ export default ts.config(
     },
   },
   {
-    ignores: ["dist/", "target/", "src-tauri/", "node_modules/", "playwright-report/", "test-results/", "e2e/.artifacts/"],
+    ignores: [".claude/", "dist/", "target/", "src-tauri/", "node_modules/", "playwright-report/", "test-results/", "e2e/.artifacts/"],
   },
 );
