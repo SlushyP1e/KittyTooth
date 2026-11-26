@@ -140,6 +140,7 @@ export const METRIC_LABELS: Record<Metric, string> = {
   session_min: "Session min",
   session_avg: "Session average",
   session_max: "Session max",
+  alert: "Alert (0 off, 1 high, 2 low)",
 };
 
 /** Mirrors osc::normalize_address in Rust. Returns the full address or null if invalid. */

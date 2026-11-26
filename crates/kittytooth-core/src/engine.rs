@@ -1449,6 +1449,7 @@ impl Engine {
                 session_avg: Some(120.0),
                 session_max: Some(180),
                 avg_10s: Some(bpm as f64),
+                alert: self.alert_code(),
             };
         }
         let avg_10s = if self.recent.is_empty() {
@@ -1472,6 +1473,17 @@ impl Engine {
             session_avg: stats.avg,
             session_max: stats.max,
             avg_10s,
+            alert: self.alert_code(),
+        }
+    }
+
+    /// The `Alert` avatar parameter: 0 none, 1 high, 2 low (test alerts included, so the
+    /// Test alert button can be used to check an avatar's alert animation).
+    fn alert_code(&self) -> u8 {
+        match self.snap.alert.as_ref().map(|a| a.kind) {
+            None => 0,
+            Some(AlertKind::High) => 1,
+            Some(AlertKind::Low) => 2,
         }
     }
 

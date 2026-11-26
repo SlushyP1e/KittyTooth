@@ -34,6 +34,8 @@ pub struct Metrics {
     pub session_max: Option<u16>,
     /// Rolling 10 s average (VRCOSC "Average").
     pub avg_10s: Option<f64>,
+    /// Heart rate alert showing: 0 none, 1 high, 2 low.
+    pub alert: u8,
 }
 
 impl Metrics {
@@ -120,6 +122,7 @@ fn kittytooth(m: &Metrics, norm: f64) -> Vec<ParamMsg> {
         p(&pre, "HRV", float(hrv_normalized(m.hrv_ms)), Role::Value),
         p(&pre, "Beat", OscValue::Bool(m.beat_toggle), Role::Beat),
         p(&pre, "BeatPulse", OscValue::Bool(m.beat_pulse), Role::Beat),
+        p(&pre, "Alert", int(m.alert), Role::Value),
     ];
     if let Some(b) = m.battery {
         v.push(p(&pre, "Battery", float(b as f64 / 100.0), Role::Value));
@@ -205,6 +208,7 @@ pub fn metric_value(metric: Metric, m: &Metrics, norm: f64) -> f64 {
         Metric::SessionMin => m.session_min.unwrap_or(0) as f64,
         Metric::SessionAvg => m.session_avg.unwrap_or(0.0),
         Metric::SessionMax => m.session_max.unwrap_or(0) as f64,
+        Metric::Alert => m.alert as f64,
     }
 }
 
@@ -258,6 +262,7 @@ mod tests {
             session_avg: Some(95.4),
             session_max: Some(150),
             avg_10s: Some(126.6),
+            alert: 1,
         }
     }
 
@@ -290,7 +295,8 @@ mod tests {
         assert_eq!(k("Zone"), OscValue::Int(3));
         assert_eq!(k("HRV"), OscValue::Float(0.25));
         assert_eq!(k("Battery"), OscValue::Float(0.8));
-        assert_eq!(v.len(), 12);
+        assert_eq!(k("Alert"), OscValue::Int(1));
+        assert_eq!(v.len(), 13);
     }
 
     #[test]
@@ -406,6 +412,7 @@ mod tests {
             (Metric::SessionMin, 60.0),
             (Metric::SessionAvg, 95.4),
             (Metric::SessionMax, 150.0),
+            (Metric::Alert, 1.0),
         ];
         for (metric, want) in all {
             let got = metric_value(metric, &m, 0.55);

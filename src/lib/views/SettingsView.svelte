@@ -328,7 +328,10 @@
       <div class="srow">
         <div class="stext">
           <span class="slabel">Try it</span>
-          <p class="shelp">Fires a sample high alert with your current choices. No heart rate needed.</p>
+          <p class="shelp">
+            Fires a sample high alert with your current choices. No heart rate needed. Avatars using the
+            KittyTooth preset also get <span class="mono">KittyTooth/Alert</span> (1 high, 2 low) to animate.
+          </p>
         </div>
         <div class="sctrl">
           <button class="btn" disabled={!a.enabled} onclick={testAlert}>Test alert</button>

@@ -206,6 +206,8 @@ pub enum Metric {
     SessionMin,
     SessionAvg,
     SessionMax,
+    /// Heart rate alert: 0 none, 1 high, 2 low.
+    Alert,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]

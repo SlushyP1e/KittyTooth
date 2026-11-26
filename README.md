@@ -149,6 +149,7 @@ synced* if only you need them, *synced* if others should see them):
 | `KittyTooth/Beat` | Bool | Toggles every beat; cheaper to sync than `BeatPulse` |
 | `KittyTooth/Connected` | Bool | Hide the display when no sensor is connected |
 | `KittyTooth/Zone` | Int | Change colors by training zone (0-5) |
+| `KittyTooth/Alert` | Int | Flash, tint or show an icon on a heart rate alert (0 none, 1 high, 2 low), so you see it in VR |
 | `KittyTooth/HRV`, `Percent`, `Battery` | Float | Extras |
 
 Tip: VRChat syncs at roughly 5-10 updates/s, so for remote players prefer the `Beat` toggle
