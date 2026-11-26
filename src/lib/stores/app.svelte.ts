@@ -3,6 +3,7 @@ import { toUserError } from "../api/backend";
 import { defaultConfig, emptySnapshot } from "../defaults";
 import type { AppInfo, Config, DiscoveredDevice, SecretKind, Snapshot, SourceKind, UserError } from "../types";
 import { HistoryBuffer } from "./history";
+import { playAlertSound } from "../alert-sound";
 
 export interface Toast {
   id: number;
@@ -51,6 +52,10 @@ export class AppStore {
       await backend.on("beat", (b) => {
         this.beatInterval = b.interval_ms;
         this.beatCount++;
+      }),
+      await backend.on("alert", (a) => {
+        const mini = typeof location !== "undefined" && location.hash === "#/mini";
+        if (this.config.alerts.sound && !mini) playAlertSound(a.kind);
       }),
       await backend.on("sample", (p) => {
         this.history.push(p);

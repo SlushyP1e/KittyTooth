@@ -84,3 +84,15 @@ describe("mock backend", () => {
     await expect(mock.setSecret("hyperate_key", "  ")).rejects.toMatchObject({ code: "invalid_input" });
   });
 });
+
+describe("mock alerts", () => {
+  it("test alert shows in the snapshot and emits an alert event", async () => {
+    const api = createMockBackend({ scenario: "idle", prefill: 0 });
+    const events: unknown[] = [];
+    await api.on("alert", (a) => events.push(a));
+    await api.testAlert();
+    expect(api.peek().alert).toMatchObject({ kind: "high", test: true, threshold: 150, bpm: 162 });
+    expect(events).toHaveLength(1);
+    api.dispose();
+  });
+});

@@ -548,6 +548,20 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       }
       publish();
     },
+    async testAlert() {
+      const threshold = config.alerts.high_bpm;
+      const bpm = threshold + 12;
+      snap.alert = { kind: "high", bpm, threshold, since_ms: Date.now(), test: true };
+      emit("alert", { kind: "high", bpm, threshold, repeat: false, test: true });
+      if (config.alerts.chatbox) pushLog("/chatbox/input", config.alerts.high_text.replace("{hr}", String(bpm)), "string", true);
+      publish();
+      later(8000, () => {
+        if (snap.alert?.test) {
+          snap.alert = null;
+          publish();
+        }
+      });
+    },
     async resetSession() {
       history.length = 0;
       snap.stats = { min: null, max: null, avg: null, samples: 0 };

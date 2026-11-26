@@ -36,6 +36,7 @@ export function createTauriBackend(): Backend {
     clearSecret: (kind) => call<SecretStatus[]>("clear_secret", { kind }),
     openLink: (link) => call("open_link", { link }),
     testSweep: (on) => call("test_sweep", { on }),
+    testAlert: () => call("test_alert"),
     resetSession: () => call("reset_session"),
     getHistory: (sinceMs) => call<HistoryPoint[]>("get_history", { sinceMs }),
     getOscLog: () => call<OscLogEntry[]>("get_osc_log"),

@@ -32,6 +32,8 @@ export interface Backend {
   clearSecret(kind: SecretKind): Promise<SecretStatus[]>;
   openLink(link: HelpLink): Promise<void>;
   testSweep(on: boolean): Promise<void>;
+  /** Fires a sample high alert (notification, sound, chatbox if chosen). */
+  testAlert(): Promise<void>;
   resetSession(): Promise<void>;
   getHistory(sinceMs: number): Promise<HistoryPoint[]>;
   getOscLog(): Promise<OscLogEntry[]>;
