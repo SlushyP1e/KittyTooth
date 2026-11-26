@@ -188,6 +188,7 @@ async fn kittytooth_preset_exact_values() {
     assert_eq!(k("Connected"), OscType::Bool(true));
     assert_eq!(k("Zone"), OscType::Int(0));
     assert_eq!(k("Battery"), f(0.8));
+    assert_eq!(k("Alert"), OscType::Int(0)); // alerts are off by default
     assert!(matches!(k("HRV"), OscType::Float(v) if (0.0..=1.0).contains(&v)));
     // Beats from RR intervals: Beat toggles, BeatPulse goes true then false.
     assert!(
@@ -207,7 +208,7 @@ async fn kittytooth_preset_exact_values() {
         assert!(addr.starts_with(KT), "{addr}");
         let name = &addr[KT.len()..];
         let ok = match name {
-            "HR" | "Ones" | "Tens" | "Hundreds" | "Zone" => matches!(args[0], OscType::Int(_)),
+            "HR" | "Ones" | "Tens" | "Hundreds" | "Zone" | "Alert" => matches!(args[0], OscType::Int(_)),
             "Normalized" | "Percent" | "HRV" | "Battery" => matches!(args[0], OscType::Float(_)),
             "Connected" | "Beat" | "BeatPulse" => matches!(args[0], OscType::Bool(_)),
             other => panic!("unexpected parameter {other}"),
