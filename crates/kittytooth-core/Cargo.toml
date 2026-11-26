@@ -26,6 +26,8 @@ rand = "0.9"
 btleplug = { version = "0.13", optional = true }
 futures = { version = "0.3", optional = true }
 nusb = { version = "0.2", optional = true }
+# Loads SteamVR's vrclient at runtime (optional SteamVR overlay); no SDK needed to build.
+libloading = "0.8"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "0.30", features = ["native-tls"] }
 

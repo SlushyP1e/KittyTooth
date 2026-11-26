@@ -7,6 +7,7 @@ use kittytooth_core::config::{Config, ConfigStore};
 use kittytooth_core::engine::EngineHandle;
 use kittytooth_core::overlay::{self, OverlayServer};
 use kittytooth_core::source::SecretStore;
+use kittytooth_core::steamvr::SteamVrHandle;
 use kittytooth_core::UserError;
 use tauri::{AppHandle, Manager};
 
@@ -26,6 +27,8 @@ pub struct AppState {
     pub logging: Logging,
     pub secrets: Arc<dyn SecretStore>,
     pub overlay: tokio::sync::Mutex<OverlayState>,
+    /// Optional SteamVR overlay and haptics (its own thread; idle unless turned on).
+    pub steamvr: SteamVrHandle,
     /// Shown once in the UI (e.g. config was unreadable and defaults were used).
     pub startup_notice: Mutex<Option<UserError>>,
     pub quitting: AtomicBool,
@@ -34,6 +37,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(
         engine: EngineHandle,
+        steamvr: SteamVrHandle,
         store: ConfigStore,
         logging: Logging,
         secrets: Arc<dyn SecretStore>,
@@ -41,6 +45,7 @@ impl AppState {
     ) -> Self {
         Self {
             engine,
+            steamvr,
             store,
             logging,
             secrets,

@@ -11,10 +11,24 @@ import {
   renderChatbox,
   rssiBars,
   rssiLabel,
+  steamVrStatus,
   timeAgo,
   zoneName,
 } from "./format";
 import { emptySnapshot } from "./defaults";
+
+describe("steamVrStatus", () => {
+  it("explains each state", () => {
+    const s = (state: Parameters<typeof steamVrStatus>[0]["state"], message: string | null = null) =>
+      steamVrStatus({ state, version: "2.15.6", message });
+    expect(s("not_running")).toMatchObject({ label: "SteamVR not running", tone: "off" });
+    expect(s("not_installed").label).toBe("SteamVR not found");
+    expect(s("connected")).toMatchObject({ tone: "ok", help: "SteamVR 2.15.6" });
+    expect(s("connected", "The overlay could not be shown").tone).toBe("warn");
+    expect(s("error", "Boom.").help).toBe("Boom. KittyTooth keeps trying.");
+    expect(s("off").tone).toBe("off");
+  });
+});
 
 describe("formatting", () => {
   it("formats bpm and ms with placeholders", () => {

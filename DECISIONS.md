@@ -245,12 +245,36 @@ linked from <https://developers.hyperate.io/>, whose live demo uses the same pro
   can return `WouldBlock` on a freshly bound socket before readiness is first observed, which
   dropped the first few OSC messages under load.
 
+### SteamVR overlay and haptics
+* **Binding: load SteamVR's `vrclient` at runtime with `libloading`, no SDK crate.** The `openvr`
+  / `openvr_sys` crates build the OpenVR C++ SDK with cmake and run bindgen (libclang), and
+  `ovr_overlay` needs autocxx (also libclang); all are heavier on CI and some lag the SDK.
+  Instead `steamvr/ffi.rs` does what `openvr_api.dll` does: read `openvrpaths.vrpath`
+  (`%LOCALAPPDATA%\openvr\` or `~/.config/openvr/`), load `bin/vrclient_x64.dll` or
+  `bin/linux64/vrclient.so`, get `IVRClientCore_003` from `VRClientCoreFactory`, then the C
+  function tables `FnTable:IVRSystem_026` and `FnTable:IVROverlay_028`. Struct layouts and table
+  indices were taken from OpenVR 2.15.6 (`openvr_capi.h`, `src/ivrclientcore.h`). Nothing is needed
+  at build time, so CI builds it on Windows and Linux as is; no feature flag.
+* **Never launches SteamVR.** It first initialises as a *background* app, which fails with
+  `NoServerForBackgroundApp` (121) when SteamVR isn't running, then reconnects as an *overlay*
+  app. It probes every 5 s (15 s if not installed) and acknowledges `VREvent_Quit` so SteamVR can
+  close.
+* **Own OS thread**, reading only the engine's watch/broadcast channels; a slow SteamVR can't
+  touch the OSC path. A panic there sets an error status instead of taking the app down.
+* **Overlay image drawn in Rust** (`steamvr/render.rs`, 512x256 RGBA uploaded with
+  `SetOverlayRaw` at most every 250 ms and only when it changes). The bundled fonts are woff2,
+  which would need a decoder, so digits and the few labels (BPM, HIGH, LOW, TEST) are rounded
+  strokes with distance-field anti-aliasing, and the logo is the cat-head path from `Logo.svelte`.
+* **Haptics use the legacy `TriggerHapticPulse`** (pulses of up to 4 ms, one per 5 ms, played as
+  a 90 ms + 70 ms "lub-dub"). The SteamVR Input alternative needs an action manifest and default
+  bindings per controller type.
+
 ## Stack deviations
 
 * None. Tauri 2, btleplug, rosc, tokio, serde, Svelte 5 + TS + Vite as specified. Additions:
   `mdns-sd` (OSCQuery mDNS), `tracing` + `tracing-appender` (rotating logs, 7 daily files),
   Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`, `opener`;
-  `tokio-tungstenite` (native-tls) for the Pulsoid/HypeRate WebSockets and `keyring` for
-  secrets.
+  `tokio-tungstenite` (native-tls) for the Pulsoid/HypeRate WebSockets, `keyring` for
+  secrets and `libloading` (SteamVR's client, loaded at runtime).
 * `@playwright/test` is pinned to 1.63.0 to match the browser build available in the
   development environment; CI installs the matching Chromium.

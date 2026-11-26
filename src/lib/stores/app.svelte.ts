@@ -1,7 +1,16 @@
 import type { Backend, Unlisten } from "../api/backend";
 import { toUserError } from "../api/backend";
 import { defaultConfig, emptySnapshot } from "../defaults";
-import type { AppInfo, Config, DiscoveredDevice, SecretKind, Snapshot, SourceKind, UserError } from "../types";
+import type {
+  AppInfo,
+  Config,
+  DiscoveredDevice,
+  SecretKind,
+  Snapshot,
+  SourceKind,
+  SteamVrStatus,
+  UserError,
+} from "../types";
 import { HistoryBuffer } from "./history";
 import { playAlertSound } from "../alert-sound";
 
@@ -19,6 +28,7 @@ export class AppStore {
   config = $state<Config>(defaultConfig());
   devices = $state<DiscoveredDevice[]>([]);
   info = $state<AppInfo | null>(null);
+  steamvr = $state<SteamVrStatus>({ state: "off", version: null, message: null });
   ready = $state(false);
   isMock = $state(false);
   saving = $state<"idle" | "pending" | "saved" | "error">("idle");
@@ -46,6 +56,7 @@ export class AppStore {
     this.unlisten.push(
       await backend.on("snapshot", (s) => (this.snapshot = s)),
       await backend.on("devices", (d) => (this.devices = d)),
+      await backend.on("steamvr", (s) => (this.steamvr = s)),
       await backend.on("config", (c) => {
         if (this.saving !== "pending") this.config = c;
       }),
@@ -68,6 +79,7 @@ export class AppStore {
       this.config = st.config;
       this.devices = st.devices;
       this.info = st.info;
+      if (st.steamvr) this.steamvr = st.steamvr;
       if (st.info.notice) this.toastError(st.info.notice);
       const hist = await backend.getHistory(0);
       this.history.set(hist);

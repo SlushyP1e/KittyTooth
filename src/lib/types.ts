@@ -215,6 +215,30 @@ export type DisconnectBehavior = "hold_last" | "send_zero";
 export type Motion = "on" | "reduced" | "system";
 export type Theme = "dark" | "light" | "system";
 export type GraphRange = "60s" | "5m" | "session";
+export type VrAttach = "left_wrist" | "right_wrist" | "hud";
+export type VrSize = "small" | "medium" | "large";
+export type VrHand = "left" | "right" | "both";
+
+export interface SteamVrConfig {
+  enabled: boolean;
+  /** Show the heart rate overlay in the headset. */
+  overlay: boolean;
+  attach: VrAttach;
+  size: VrSize;
+  /** Percent, 20..100. */
+  opacity: number;
+  /** Buzz the controllers when an alert fires or reminds. */
+  haptics: boolean;
+  haptics_hand: VrHand;
+}
+
+export type SteamVrState = "off" | "not_installed" | "not_running" | "connected" | "error";
+
+export interface SteamVrStatus {
+  state: SteamVrState;
+  version: string | null;
+  message: string | null;
+}
 
 export interface CustomMapping {
   address: string;
@@ -279,6 +303,7 @@ export interface Config {
     motion: Motion;
   };
   overlay: { enabled: boolean; port: number };
+  steamvr: SteamVrConfig;
   debug: { log_latency: boolean };
 }
 
@@ -299,6 +324,7 @@ export interface InitialState {
   config: Config;
   devices: DiscoveredDevice[];
   info: AppInfo;
+  steamvr: SteamVrStatus;
 }
 
 export interface ConfigResult {
@@ -318,4 +344,5 @@ export interface BackendEvents {
   devices: DiscoveredDevice[];
   config: Config;
   alert: AlertEvent;
+  steamvr: SteamVrStatus;
 }
