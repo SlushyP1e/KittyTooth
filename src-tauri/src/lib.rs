@@ -6,6 +6,7 @@ mod logging;
 mod secrets;
 mod state;
 mod tray;
+mod updates;
 mod windows;
 
 use std::sync::atomic::Ordering;
@@ -39,6 +40,8 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::PendingUpdate::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::set_config,
@@ -57,6 +60,10 @@ pub fn run() {
             commands::reset_session,
             commands::get_history,
             commands::get_osc_log,
+            commands::list_sessions,
+            commands::get_session,
+            commands::delete_session,
+            commands::export_session,
             commands::export_config,
             commands::import_config,
             commands::reset_config,
@@ -64,6 +71,9 @@ pub fn run() {
             commands::open_mini,
             commands::close_mini,
             commands::show_main,
+            updates::check_update,
+            updates::install_update,
+            updates::open_release,
         ])
         .setup(|app| {
             setup(app)?;
@@ -77,6 +87,8 @@ pub fn run() {
         if let RunEvent::Exit = event {
             if let Some(state) = app.try_state::<AppState>() {
                 state.quitting.store(true, Ordering::SeqCst);
+                // Removes the in-headset overlay before the engine goes.
+                state.steamvr.shutdown();
                 let engine = state.engine.clone();
                 // Sends Connected=false to every OSC target before quitting.
                 tauri::async_runtime::block_on(engine.shutdown());
@@ -89,6 +101,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let data_dir = app.path().app_config_dir()?;
     let log_dir = app.path().app_log_dir().unwrap_or_else(|_| data_dir.join("logs"));
+    // Saved sessions stay on this computer (local, not roaming, app data).
+    let history_dir = app
+        .path()
+        .app_local_data_dir()
+        .unwrap_or_else(|_| data_dir.clone())
+        .join("sessions");
     let store = ConfigStore::new(&data_dir);
     let report = store.load();
     let logging = logging::Logging::init(&log_dir, report.config.debug.log_latency);
@@ -125,12 +143,19 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             config.clone(),
             Some(store.clone()),
             factory,
-            EngineOptions::default(),
+            EngineOptions {
+                history_dir: Some(history_dir),
+                ..Default::default()
+            },
         )
     });
 
+    // Optional SteamVR overlay + haptics on its own thread; it only reads engine channels.
+    let steamvr = kittytooth_core::steamvr::spawn(&engine);
+    let steamvr_status = steamvr.subscribe();
     let state = AppState::new(
         engine.clone(),
+        steamvr,
         store,
         logging,
         secrets,
@@ -142,6 +167,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     tray::create(&handle, &config)?;
     spawn_bridges(&handle, &engine);
+    spawn_steamvr_bridge(&handle, steamvr_status);
     tray::spawn_updater(handle.clone(), engine.clone());
 
     // "Start minimized to tray" applies to every launch, including start-with-Windows
@@ -179,6 +205,20 @@ fn notify_alert(
     if let Err(err) = app.notification().builder().title(title).body(body).show() {
         tracing::warn!(error = %err, "could not show the alert notification");
     }
+}
+
+/// Forwards SteamVR connection status to the UI.
+fn spawn_steamvr_bridge(
+    app: &tauri::AppHandle,
+    mut status: tokio::sync::watch::Receiver<kittytooth_core::steamvr::SteamVrStatus>,
+) {
+    let a = app.clone();
+    tauri::async_runtime::spawn(async move {
+        while status.changed().await.is_ok() {
+            let s = status.borrow_and_update().clone();
+            let _ = a.emit("steamvr", &s);
+        }
+    });
 }
 
 /// Forwards engine state to the UI. Snapshots are throttled to display rate; beats and
@@ -219,6 +259,9 @@ fn spawn_bridges(app: &tauri::AppHandle, engine: &EngineHandle) {
                 }
                 Ok(EngineEvent::Sample(p)) => {
                     let _ = a.emit("sample", &p);
+                }
+                Ok(EngineEvent::SessionsChanged) => {
+                    let _ = a.emit("sessions", ());
                 }
                 Ok(EngineEvent::ConfigChanged) => {
                     let _ = a.emit("config", &e.config());

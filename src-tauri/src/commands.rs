@@ -2,9 +2,11 @@
 
 use kittytooth_core::config::{Config, ConfigStore};
 use kittytooth_core::engine::{HistoryPoint, Snapshot};
+use kittytooth_core::history::{self, Session, SessionStore, SessionSummary};
 use kittytooth_core::osc::sender::OscLogEntry;
 use kittytooth_core::sensor::DiscoveredDevice;
 use kittytooth_core::source::{self, SecretKind, SecretStatus, SourceKind};
+use kittytooth_core::steamvr::SteamVrStatus;
 use kittytooth_core::{KtError, UserError};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -29,6 +31,8 @@ pub struct AppInfo {
     pub overlay_error: Option<UserError>,
     pub log_dir: String,
     pub config_path: String,
+    /// Folder holding saved sessions.
+    pub history_dir: Option<String>,
     pub notice: Option<UserError>,
     /// Stored tokens/keys, masked.
     pub secrets: Vec<SecretStatus>,
@@ -42,6 +46,7 @@ pub struct InitialState {
     pub config: Config,
     pub devices: Vec<DiscoveredDevice>,
     pub info: AppInfo,
+    pub steamvr: SteamVrStatus,
 }
 
 async fn app_info(state: &AppState) -> AppInfo {
@@ -53,6 +58,7 @@ async fn app_info(state: &AppState) -> AppInfo {
         overlay_error: o.error.clone(),
         log_dir: state.logging.dir.display().to_string(),
         config_path: state.store.path().display().to_string(),
+        history_dir: state.engine.sessions().map(|s| s.dir().display().to_string()),
         notice: state.startup_notice.lock().ok().and_then(|mut n| n.take()),
         secrets: secret_statuses(state),
         hyperate_builtin_key: source::builtin_hyperate_key().is_some(),
@@ -73,6 +79,7 @@ pub async fn get_state(state: State<'_, AppState>) -> CmdResult<InitialState> {
         config: state.engine.config(),
         devices: state.engine.devices(),
         info: app_info(&state).await,
+        steamvr: state.steamvr.status(),
     })
 }
 
@@ -215,6 +222,71 @@ pub fn get_history(state: State<'_, AppState>, since_ms: u64) -> Vec<HistoryPoin
     state.engine.history(since_ms)
 }
 
+fn sessions(state: &AppState) -> CmdResult<SessionStore> {
+    state
+        .engine
+        .sessions()
+        .cloned()
+        .ok_or_else(|| err(KtError::Io("session history is not available".into())))
+}
+
+/// File work runs on the blocking pool so a big history never stalls the async runtime.
+async fn blocking<T: Send + 'static>(f: impl FnOnce() -> CmdResult<T> + Send + 'static) -> CmdResult<T> {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .map_err(|e| err(KtError::Io(e.to_string())))?
+}
+
+#[tauri::command]
+pub async fn list_sessions(state: State<'_, AppState>) -> CmdResult<Vec<SessionSummary>> {
+    let store = sessions(&state)?;
+    blocking(move || Ok(store.list())).await
+}
+
+#[tauri::command]
+pub async fn get_session(state: State<'_, AppState>, id: String) -> CmdResult<Session> {
+    let store = sessions(&state)?;
+    blocking(move || store.load(&id).map_err(err)).await
+}
+
+#[tauri::command]
+pub async fn delete_session(state: State<'_, AppState>, id: String) -> CmdResult<Vec<SessionSummary>> {
+    let store = sessions(&state)?;
+    blocking(move || {
+        store.delete(&id).map_err(err)?;
+        tracing::info!(id, "session deleted");
+        Ok(store.list())
+    })
+    .await
+}
+
+/// Saves a session as CSV where the user picks. Returns the path, or `None` if cancelled.
+#[tauri::command]
+pub async fn export_session(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> CmdResult<Option<String>> {
+    let store = sessions(&state)?;
+    let s2 = store.clone();
+    let id2 = id.clone();
+    let session = blocking(move || s2.load(&id2).map_err(err)).await?;
+    let Some(path) = app
+        .dialog()
+        .file()
+        .add_filter("CSV", &["csv"])
+        .set_file_name(history::csv_file_name(session.summary.start_ms))
+        .blocking_save_file()
+    else {
+        return Ok(None);
+    };
+    let path = path.into_path().map_err(|e| err(KtError::Io(e.to_string())))?;
+    let text = history::to_csv(&session);
+    std::fs::write(&path, text).map_err(|e| err(e.into()))?;
+    tracing::info!(id, path = %path.display(), "session exported");
+    Ok(Some(path.display().to_string()))
+}
+
 #[tauri::command]
 pub fn get_osc_log(state: State<'_, AppState>) -> Vec<OscLogEntry> {
     state.engine.osc_log()
@@ -282,13 +354,14 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Cmd
     let text = format!(
         "KittyTooth diagnostics\n\
          ======================\n\
-         version: {}\nplatform: {}\nconfig: {}\nlogs: {}\noverlay: {}\ncredentials (values never included): {}\n\n\
+         version: {}\nplatform: {}\nconfig: {}\nlogs: {}\noverlay: {}\nsteamvr: {}\ncredentials (values never included): {}\n\n\
          -- engine snapshot --\n{}\n\n-- config --\n{}\n\n-- recent log --\n{}\n",
         info.version,
         info.platform,
         info.config_path,
         info.log_dir,
         info.overlay_url.as_deref().unwrap_or("off"),
+        serde_json::to_string(&state.steamvr.status()).unwrap_or_default(),
         creds.join(", "),
         serde_json::to_string_pretty(&snap).unwrap_or_default(),
         serde_json::to_string_pretty(&cfg).unwrap_or_default(),

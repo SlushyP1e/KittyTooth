@@ -6,8 +6,11 @@ import type {
   InitialState,
   OscLogEntry,
   SecretKind,
+  Session,
+  SessionSummary,
   SecretStatus,
   SourceKind,
+  UpdateInfo,
   UserError,
 } from "../types";
 
@@ -37,6 +40,13 @@ export interface Backend {
   resetSession(): Promise<void>;
   getHistory(sinceMs: number): Promise<HistoryPoint[]>;
   getOscLog(): Promise<OscLogEntry[]>;
+  /** Saved sessions, newest first. */
+  listSessions(): Promise<SessionSummary[]>;
+  getSession(id: string): Promise<Session>;
+  /** Deletes a saved session; returns the updated list. */
+  deleteSession(id: string): Promise<SessionSummary[]>;
+  /** Saves a session as CSV where the user picks; null if cancelled. */
+  exportSession(id: string): Promise<string | null>;
   exportConfig(): Promise<string | null>;
   importConfig(): Promise<ConfigResult | null>;
   resetConfig(): Promise<ConfigResult>;
@@ -45,6 +55,12 @@ export interface Backend {
   closeMini(): Promise<void>;
   showMain(): Promise<void>;
   startDrag(): Promise<void>;
+  /** Asks GitHub for a newer version. Null when up to date. Never installs. */
+  checkUpdate(): Promise<UpdateInfo | null>;
+  /** Downloads, verifies and installs the update from the last check, then restarts. */
+  installUpdate(): Promise<void>;
+  /** Opens the GitHub release page for `version` (how portable copies update). */
+  openRelease(version: string): Promise<void>;
   on<K extends keyof BackendEvents>(event: K, cb: (payload: BackendEvents[K]) => void): Promise<Unlisten>;
 }
 

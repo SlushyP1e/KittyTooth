@@ -50,6 +50,14 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
   them off, and reminders while it lasts. Shows a desktop notification, a chime (rising = high,
   falling = low), a banner and a glowing mini window, and can post the warning to your VRChat
   chatbox so friends nearby see it. A *Test alert* button tries it out. Not a medical device.
+* **Session history** (History page): every session is saved on your computer while heart rate
+  data comes in, about one reading per second plus beat intervals and any alerts. Look back at the
+  full graph with alert markers, time in each zone and HRV over time, export a session as CSV
+  (for example to show a doctor) or delete it. Keep sessions for 30 days, 90 days, a year or
+  forever, with a space limit. **Nothing is uploaded**: sessions never leave your PC.
+* **SteamVR overlay** (optional, Settings → SteamVR): your BPM on your wrist or in view inside a
+  PC VR headset, red for a high alert and amber for a low one, plus a heartbeat-like controller
+  buzz when an alert fires. Off by default; does nothing if SteamVR isn't installed.
 * **Streaming**: always-on-top mini window and a transparent OBS browser source.
 * **Tray app**: the tray icon shows your live BPM; KittyTooth keeps sending while minimized.
 * Dark/light theme, accent color, springy animations (Settings → Appearance → Motion: on, reduced
@@ -67,6 +75,10 @@ Download from the [latest release](../../releases/latest):
 | `SHA256SUMS.txt` | Checksums for all files. |
 
 Requirements: Windows 10/11 with Bluetooth 4.0+ (built-in or a USB dongle).
+
+KittyTooth checks for new versions on launch and every 6 hours (turn it off in Settings →
+Updates). The installer and AppImage update in place with one click; the portable exe links
+you to the release page. Nothing installs without asking.
 
 ## Resource usage
 
@@ -179,6 +191,28 @@ Settings → OBS overlay shows a URL like `http://127.0.0.1:9123/overlay`. Add i
 *Browser source* (transparent background). Options: `?size=120`, `?color=ff6fa8`, `?text=ffffff`,
 `?hide=1` (hide when disconnected), `?unit=0`.
 
+## SteamVR overlay and controller buzz
+
+Desktop notifications don't reach you inside a headset, so KittyTooth can show your heart rate in
+SteamVR itself. Turn it on in **Settings → SteamVR**:
+
+* **Show overlay**: a small card with the cat-head logo and your BPM, in the app's colours. Put it
+  on your **left wrist** or **right wrist** (it sits on top of the controller, like a watch: look
+  down at your hand) or **in view** (always visible, a little below eye level). Choose the size
+  and opacity. During a heart rate alert it turns **red** (high) or **amber** (low) and says
+  *HIGH* or *LOW*.
+* **Fade when not looking** (on by default, wrist only): like a watch, the wrist overlay fades in
+  when you look at it and out when you look away. *Look angle* sets how close to the middle of
+  your view it has to be (narrow, normal, wide). Alerts always show, wherever you look.
+* **Buzz on alerts**: a short double pulse, like a heartbeat, on the left, right or both
+  controllers when an alert fires and on each reminder. It follows your *Alerts* settings, so turn
+  alerts on first. *Test alert* tries both the red overlay and the buzz.
+
+KittyTooth never starts SteamVR. While SteamVR isn't running it says *SteamVR not running* and
+connects by itself within a few seconds of SteamVR starting; when you quit SteamVR it lets go
+cleanly. It talks to SteamVR on its own thread, so OSC to VRChat is never held up. Works with any
+SteamVR headset (Index, Vive, Quest via Link or Virtual Desktop, Pico, ...) on Windows or Linux.
+
 ## FAQ
 
 **KittyTooth says "Bluetooth is turned off" / "No Bluetooth adapter".**
@@ -228,6 +262,22 @@ avatar for everyone nearby. Alerts are a reminder, not a medical device. If the 
 notification doesn't appear with the portable exe, install KittyTooth once with the setup exe
 (Windows only shows notifications from apps it knows), or rely on the sound and chatbox.
 
+**Is my heart rate history private?**
+Yes. Sessions are stored only on your PC, in `%LOCALAPPDATA%\app.kittytooth.desktop\sessions\`
+(one small text file per session), and KittyTooth never uploads them anywhere. A session starts
+when valid readings start and ends after about three quiet minutes, on *Reset session*, or when
+you quit; sessions under 30 seconds aren't kept. Turn off *Save sessions* on the History page to
+stop recording, and delete any session there. *Export CSV* writes a copy only where you choose,
+with the columns `timestamp` (UTC), `elapsed_s`, `bpm`, `raw`, `rr_ms`, `zone` and `alert`.
+KittyTooth is not a medical device, so treat the numbers as a helpful record, not a diagnosis.
+**How do I see my heart rate or alerts inside my headset?**
+Turn on *Settings → SteamVR* (PC VR through SteamVR only). If the status says *SteamVR not found*,
+SteamVR isn't installed; *SteamVR not running* means start it and KittyTooth connects by itself.
+If the wrist overlay doesn't appear, check that controller is on (it hides while the controller is
+off), or switch to *in view*. If you feel no buzz, make sure heart rate alerts are on and try
+*Test alert*. On Quest standalone (no PC), there is no SteamVR: use *Show in VRChat chatbox* for
+alerts instead.
+
 **Where are my settings and logs?**
 `%APPDATA%\app.kittytooth.desktop\config.json` and `%LOCALAPPDATA%\app.kittytooth.desktop\logs\`.
 *Settings → Copy diagnostics* copies everything useful for a bug report.
@@ -248,6 +298,7 @@ Linux needs `libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev li
 The HypeRate source needs a developer API key. Builds read it at compile time from
 `KITTYTOOTH_HYPERATE_KEY` (CI passes the `HYPERATE_API_KEY` repository secret); without it,
 users paste their own key on the Source page. Never commit a key.
+Releases and the one-time update signing setup: [docs/RELEASING.md](docs/RELEASING.md).
 Architecture and milestones: [PLAN.md](PLAN.md). Design decisions: [DECISIONS.md](DECISIONS.md).
 Requirement coverage: [CHECKLIST.md](CHECKLIST.md).
 

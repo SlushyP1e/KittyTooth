@@ -1,4 +1,4 @@
-import type { AlertConfig, Config, OscTarget, Snapshot } from "./types";
+import type { AlertConfig, Config, OscTarget, Snapshot, SteamVrConfig } from "./types";
 
 export function defaultAlerts(): AlertConfig {
   return {
@@ -12,6 +12,20 @@ export function defaultAlerts(): AlertConfig {
     chatbox: false,
     high_text: "\u26a0\ufe0f High heart rate: {hr} bpm",
     low_text: "\u26a0\ufe0f Low heart rate: {hr} bpm",
+  };
+}
+
+export function defaultSteamVr(): SteamVrConfig {
+  return {
+    enabled: false,
+    overlay: true,
+    attach: "left_wrist",
+    size: "medium",
+    opacity: 90,
+    fade: true,
+    fade_angle: "normal",
+    haptics: true,
+    haptics_hand: "both",
   };
 }
 
@@ -50,6 +64,7 @@ export function defaultConfig(): Config {
     processing: { smoothing: "off" },
     zones: { age: null, manual_max_hr: 190, thresholds: [50, 60, 70, 80, 90] },
     alerts: defaultAlerts(),
+    history: { enabled: true, retention: "days90", max_mb: 200 },
     osc: {
       targets: [defaultTarget()],
       keepalive_ms: 1000,
@@ -69,7 +84,9 @@ export function defaultConfig(): Config {
       motion: "on",
     },
     overlay: { enabled: true, port: 9123 },
+    steamvr: defaultSteamVr(),
     debug: { log_latency: false },
+    updates: { auto_check: true },
   };
 }
 

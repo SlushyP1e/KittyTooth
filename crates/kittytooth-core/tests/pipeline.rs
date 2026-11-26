@@ -150,6 +150,8 @@ fn start(cfg: Config, steps: Vec<MockStep>) -> (EngineHandle, Arc<MockBackend>) 
         backend.clone(),
         EngineOptions {
             mdns: false,
+            // Reconnect on silence right after the stale timeout, as before the BLE floor.
+            ble_link_floor: Duration::ZERO,
             ..Default::default()
         },
     );
@@ -770,5 +772,94 @@ async fn overlay_serves_html_and_state() {
         .err()
         .unwrap();
     assert_eq!(err.code(), "port_in_use");
+    h.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn readings_are_recorded_to_session_history() {
+    let dir = std::env::temp_dir().join(format!("kittytooth-pipeline-history-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let backend = Arc::new(MockBackend::new(vec![MockDevice::scripted(
+        "test:1",
+        "Test Strap",
+        steady(60, 72, 833.0, 100),
+    )]));
+    let h = engine::start(
+        base_config(vec![]),
+        None,
+        backend,
+        EngineOptions {
+            mdns: false,
+            history_dir: Some(dir.clone()),
+            ..Default::default()
+        },
+    );
+    let store = h.sessions().expect("history is set up").clone();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while store.list().first().is_none_or(|s| s.samples < 2) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let live = store.list();
+    assert_eq!(live.len(), 1);
+    assert!(live[0].active);
+    assert_eq!(live[0].device.as_deref(), Some("Test Strap"));
+    assert_eq!(live[0].max_bpm, 72);
+    let session = store.load(&live[0].id).unwrap();
+    assert!(session.samples.iter().any(|s| s.rr_ms.contains(&833)));
+    // Reset session ends it; a few seconds is too short to keep.
+    h.reset_session().await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while store.active_id().is_some() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The next reading starts a new session unless recording is off.
+    let mut cfg = h.config();
+    cfg.history.enabled = false;
+    h.set_config(cfg).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(store.list().is_empty(), "{:?}", store.list());
+    h.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Phone apps that relay a watch (e.g. HeartCast on an iPhone) send a reading every few seconds,
+/// not every second. The link must stay up and "Connected" must not flicker once the pace is
+/// learned, instead of reconnecting after every quiet stretch longer than the stale timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn slow_sender_stays_connected() {
+    let l = Listener::new().await;
+    let mut cfg = base_config(vec![target("t", l.port, Preset::KittyTooth)]);
+    cfg.device.stale_timeout_secs = 2;
+    let mut steps = Vec::new();
+    for bpm in [70, 71, 72, 73, 74, 75, 76] {
+        steps.push(MockStep::hr(bpm));
+        steps.push(MockStep::wait_ms(1_800));
+    }
+    // After the first few readings the gaps are learned; later 3 s gaps must not go stale.
+    for bpm in [77, 78, 79] {
+        steps.push(MockStep::wait_ms(1_200));
+        steps.push(MockStep::hr(bpm));
+    }
+    let backend = Arc::new(MockBackend::new(vec![MockDevice::scripted(
+        "test:1",
+        "Slow Phone",
+        steps,
+    )]));
+    let h = engine::start(
+        cfg,
+        None,
+        backend.clone(),
+        EngineOptions {
+            mdns: false,
+            ..Default::default()
+        },
+    );
+    assert!(
+        l.wait_for(Duration::from_secs(25), |l| l.last(&format!("{KT}HR"))
+            == Some(OscType::Int(79)))
+            .await,
+        "all readings arrive"
+    );
+    assert_eq!(backend.connect_calls(), 1, "no reconnects for a slow sender");
     h.shutdown().await;
 }

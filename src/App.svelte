@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { app } from "./lib/stores/app.svelte";
+  import { updates } from "./lib/stores/update.svelte";
   import { backend } from "./lib/api";
   import { applyMotion, applyTheme } from "./lib/theme";
   import { formatBpm } from "./lib/format";
@@ -12,15 +13,16 @@
   import SourceView from "./lib/views/SourceView.svelte";
   import OscView from "./lib/views/OscView.svelte";
   import SettingsView from "./lib/views/SettingsView.svelte";
+  import HistoryView from "./lib/views/HistoryView.svelte";
   import MiniView from "./lib/views/MiniView.svelte";
   import { spring, stagger } from "./lib/motion";
 
-  type View = "live" | "source" | "devices" | "osc" | "settings" | "mini";
+  type View = "live" | "source" | "devices" | "osc" | "history" | "settings" | "mini";
   type Dot = "live" | "ok" | "warn" | "err" | "idle";
 
   function parseHash(): View {
     const h = location.hash.replace(/^#\/?/, "");
-    return (["live", "source", "devices", "osc", "settings", "mini"] as const).find((v) => v === h) ?? "live";
+    return (["live", "source", "devices", "osc", "history", "settings", "mini"] as const).find((v) => v === h) ?? "live";
   }
 
   let view = $state<View>(parseHash());
@@ -30,7 +32,7 @@
   let navEl: HTMLElement | undefined = $state();
   let gliderEl: HTMLElement | undefined = $state();
   let rolledBpm = $state(0);
-  const ORDER: View[] = ["live", "source", "devices", "osc", "settings"];
+  const ORDER: View[] = ["live", "source", "devices", "osc", "history", "settings"];
   let dir = $state(1);
 
   // Line icons per nav item (24-unit grid, stroked with currentColor).
@@ -49,6 +51,7 @@
         [12, 12, 1.5],
       ],
     },
+    history: { d: "M4.6 15A8 8 0 1 0 5 8M4 4v4h4M12 8v4l2.5 2.5" },
     settings: {
       d: "M4 7h10M18 7h2M4 17h4M12 17h8",
       c: [
@@ -86,7 +89,13 @@
       label: "Output",
       items: [{ id: "osc", label: "OSC", dot: (live && enabledTargets ? "live" : "idle") as Dot, count: enabledTargets }],
     },
-    { label: "App", items: [{ id: "settings", label: "Settings", dot: "idle" as Dot, count: null }] },
+    {
+      label: "App",
+      items: [
+        { id: "history", label: "History", dot: "idle" as Dot, count: null },
+        { id: "settings", label: "Settings", dot: "idle" as Dot, count: null },
+      ],
+    },
   ]);
 
   // The selection highlight glides between items on a spring and squishes slightly on arrival.
@@ -138,6 +147,12 @@
     location.hash = `#/${v}`;
   }
 
+  function openUpdates(e: MouseEvent) {
+    e.preventDefault();
+    navigate("settings");
+    setTimeout(() => document.getElementById("updates")?.scrollIntoView({ block: "start" }), 60);
+  }
+
   $effect(() => {
     applyTheme(app.config.ui.theme, app.config.ui.accent);
   });
@@ -164,8 +179,13 @@
     const mqMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     const onMotion = () => applyMotion(app.config.ui.motion ?? "on");
     mqMotion?.addEventListener?.("change", onMotion);
-    void app.init(backend());
+    const api = backend();
+    void app.init(api).then(() => {
+      // Only the main window checks; the mini window shares this component.
+      if (parseHash() !== "mini") void updates.start(api, () => app.config.updates?.auto_check ?? true);
+    });
     return () => {
+      updates.stop();
       window.removeEventListener("hashchange", onHash);
       mq?.removeEventListener?.("change", onScheme);
       mqMotion?.removeEventListener?.("change", onMotion);
@@ -233,7 +253,18 @@
         {/if}
         <span class="now-unit mono">bpm</span>
       </a>
-      <p class="foot mono">{app.isMock ? "demo data" : `v${app.info?.version ?? ""}`}</p>
+      <div class="foot">
+        <p class="mono">{app.isMock ? "demo data" : `v${app.info?.version ?? ""}`}</p>
+        {#if updates.info && (updates.status === "available" || updates.status === "downloading")}
+          <a
+            href="#/settings"
+            class="tag update-pill"
+            title="KittyTooth v{updates.info.version} is available"
+            aria-label="Update available: v{updates.info.version}"
+            onclick={openUpdates}>Update available</a
+          >
+        {/if}
+      </div>
     </nav>
     <div class="main-wrap">
       <main id="main-content" bind:this={mainEl} tabindex="-1">
@@ -254,6 +285,8 @@
                 <DevicesView />
               {:else if view === "osc"}
                 <OscView />
+              {:else if view === "history"}
+                <HistoryView />
               {:else if view === "settings"}
                 <SettingsView />
               {/if}
@@ -423,7 +456,27 @@
     color: var(--muted);
   }
   .foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s2);
     padding: 0 var(--s2);
+  }
+  .foot p {
+    margin: 0;
+  }
+  .update-pill {
+    height: 20px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    text-decoration: none;
+  }
+  .update-pill:hover {
+    background: color-mix(in srgb, var(--pink) 20%, transparent);
+  }
+  .update-pill:focus-visible {
+    outline: 2px solid var(--pink);
+    outline-offset: 2px;
   }
   .main-wrap {
     padding: 10px;

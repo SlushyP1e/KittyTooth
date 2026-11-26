@@ -3,14 +3,19 @@
   import Toggle from "../components/Toggle.svelte";
   import Choice from "../components/Choice.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
+  import UpdatesSection from "../components/UpdatesSection.svelte";
   import { ACCENT_PRESETS, isCustomAccent } from "../theme";
-  import { ZONE_NAMES } from "../format";
-  import type { Motion, Smoothing, Theme } from "../types";
+  import StatusChip from "../components/StatusChip.svelte";
+  import { ZONE_NAMES, steamVrStatus } from "../format";
+  import type { Motion, Smoothing, Theme, VrAttach, VrFadeAngle, VrHand, VrSize } from "../types";
 
   const c = $derived(app.config);
   const s = $derived(app.snapshot);
   const maxHr = $derived(c.zones.age ? 220 - c.zones.age : c.zones.manual_max_hr);
   const a = $derived(c.alerts);
+  const vr = $derived(c.steamvr);
+  const vrStatus = $derived(steamVrStatus(app.steamvr));
+  const OPACITY_OPTIONS = [40, 60, 80, 90, 100].map((v) => ({ value: String(v), label: `${v}%` }));
   let confirmReset = $state(false);
 
   function setAlertNum(key: "high_bpm" | "low_bpm" | "sustain_secs", raw: string, min: number, max: number) {
@@ -341,6 +346,125 @@
   </div>
 
   <div class="section">
+    <h2 class="section-label">SteamVR <span class="spacer"></span><StatusChip status={vrStatus} /></h2>
+    <div class="hairlist">
+      <Toggle
+        label="Heart rate in your headset"
+        hint="A small overlay with your BPM and a controller buzz on alerts, for PC VR through SteamVR. Optional: without SteamVR nothing changes."
+        checked={vr.enabled}
+        onchange={(v) => app.updateConfig((cfg) => (cfg.steamvr.enabled = v))}
+      />
+      {#if vr.enabled}
+        <div class="srow">
+          <div class="stext">
+            <span class="slabel">Status</span>
+            <p class="shelp" role="status" aria-live="polite">{vrStatus.help}</p>
+          </div>
+        </div>
+        <Toggle
+          label="Show overlay"
+          hint="Turns red for a high alert and amber for a low one."
+          checked={vr.overlay}
+          onchange={(v) => app.updateConfig((cfg) => (cfg.steamvr.overlay = v))}
+        />
+        <div class="srow">
+          <div class="stext">
+            <span class="slabel">Position</span>
+            <p class="shelp">On a controller like a watch, or always in view.</p>
+          </div>
+          <div class="sctrl">
+            <Choice
+              label="Overlay position"
+              value={vr.attach}
+              options={[
+                { value: "left_wrist", label: "left wrist" },
+                { value: "right_wrist", label: "right wrist" },
+                { value: "hud", label: "in view" },
+              ]}
+              onchange={(v: VrAttach) => app.updateConfig((cfg) => (cfg.steamvr.attach = v))}
+            />
+          </div>
+        </div>
+        <div class="srow">
+          <div class="stext"><span class="slabel">Size</span></div>
+          <div class="sctrl">
+            <Choice
+              label="Overlay size"
+              value={vr.size}
+              options={[
+                { value: "small", label: "small" },
+                { value: "medium", label: "medium" },
+                { value: "large", label: "large" },
+              ]}
+              onchange={(v: VrSize) => app.updateConfig((cfg) => (cfg.steamvr.size = v))}
+            />
+          </div>
+        </div>
+        <div class="srow">
+          <div class="stext"><span class="slabel">Opacity</span></div>
+          <div class="sctrl">
+            <Choice
+              label="Overlay opacity"
+              value={String(vr.opacity)}
+              options={OPACITY_OPTIONS}
+              onchange={(v: string) => app.updateConfig((cfg) => (cfg.steamvr.opacity = Number(v)))}
+            />
+          </div>
+        </div>
+        {#if vr.attach !== "hud"}
+          <Toggle
+            label="Fade when not looking"
+            hint="Like a watch: the wrist overlay fades in when you look at it and out when you look away. Alerts always show."
+            checked={vr.fade}
+            onchange={(v) => app.updateConfig((cfg) => (cfg.steamvr.fade = v))}
+          />
+          {#if vr.fade}
+            <div class="srow">
+              <div class="stext">
+                <span class="slabel">Look angle</span>
+                <p class="shelp">How close to the middle of your view it must be to show.</p>
+              </div>
+              <div class="sctrl">
+                <Choice
+                  label="Look angle"
+                  value={vr.fade_angle}
+                  options={[
+                    { value: "narrow", label: "narrow" },
+                    { value: "normal", label: "normal" },
+                    { value: "wide", label: "wide" },
+                  ]}
+                  onchange={(v: VrFadeAngle) => app.updateConfig((cfg) => (cfg.steamvr.fade_angle = v))}
+                />
+              </div>
+            </div>
+          {/if}
+        {/if}
+        <Toggle
+          label="Buzz on alerts"
+          hint="A heartbeat-like double pulse when a heart rate alert fires or reminds you. Uses the alert settings above; Test alert tries it."
+          checked={vr.haptics}
+          onchange={(v) => app.updateConfig((cfg) => (cfg.steamvr.haptics = v))}
+        />
+        <div class="srow">
+          <div class="stext"><span class="slabel">Buzz which hand</span></div>
+          <div class="sctrl">
+            <Choice
+              label="Buzz which hand"
+              value={vr.haptics_hand}
+              options={[
+                { value: "left", label: "left" },
+                { value: "right", label: "right" },
+                { value: "both", label: "both" },
+              ]}
+              onchange={(v: VrHand) => app.updateConfig((cfg) => (cfg.steamvr.haptics_hand = v))}
+            />
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="section">
     <h2 class="section-label">Appearance</h2>
     <div class="hairlist">
       <div class="srow">
@@ -438,6 +562,8 @@
       />
     </div>
   </div>
+
+  <UpdatesSection />
 
   <div class="section">
     <h2 class="section-label">OBS overlay</h2>

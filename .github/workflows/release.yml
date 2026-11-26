@@ -12,6 +12,11 @@ env:
   CARGO_TERM_COLOR: always
   # Optional HypeRate developer key baked into release builds; never committed.
   KITTYTOOTH_HYPERATE_KEY: ${{ secrets.HYPERATE_API_KEY }}
+  # Signs the in-app update files (minisign). Optional: without it the release still ships,
+  # just without update files, and installed copies keep pointing at the release page.
+  # One-time setup: docs/RELEASING.md.
+  TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
 jobs:
   windows:
@@ -29,13 +34,24 @@ jobs:
         shell: bash
         run: mkdir -p dist && [ -f dist/index.html ] || echo '<!doctype html>' > dist/index.html
       - run: cargo test -p kittytooth-core
-      - run: npx tauri build --bundles nsis
+      - name: Build
+        shell: bash
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            # Also writes KittyTooth_<v>_x64-setup.exe.sig for the updater.
+            npx tauri build --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          else
+            echo "::warning title=No in-app update files::TAURI_SIGNING_PRIVATE_KEY is not set, so this release skips the signed update files. See docs/RELEASING.md."
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            npx tauri build --bundles nsis
+          fi
       - name: Collect
         shell: pwsh
         run: |
           $v = (Get-Content src-tauri/tauri.conf.json | ConvertFrom-Json).version
           New-Item -ItemType Directory -Force out | Out-Null
           Copy-Item target/release/bundle/nsis/*.exe out/
+          Copy-Item target/release/bundle/nsis/*.exe.sig out/ -ErrorAction SilentlyContinue
           Copy-Item target/release/KittyTooth.exe "out/KittyTooth_${v}_x64_portable.exe"
       - uses: actions/upload-artifact@v4
         with:
@@ -54,8 +70,21 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: npm ci
-      - run: npx tauri build --bundles appimage
-      - run: mkdir -p out && cp target/release/bundle/appimage/*.AppImage out/
+      - name: Build
+        run: |
+          if [ -n "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+            # Also writes KittyTooth_<v>_amd64.AppImage.sig for the updater.
+            npx tauri build --bundles appimage --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          else
+            echo "::warning title=No in-app update files::TAURI_SIGNING_PRIVATE_KEY is not set, so this release skips the signed update files. See docs/RELEASING.md."
+            unset TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+            npx tauri build --bundles appimage
+          fi
+      - name: Collect
+        run: |
+          mkdir -p out
+          cp target/release/bundle/appimage/*.AppImage out/
+          cp target/release/bundle/appimage/*.AppImage.sig out/ 2>/dev/null || true
       - uses: actions/upload-artifact@v4
         with:
           name: linux
@@ -65,10 +94,49 @@ jobs:
     needs: [windows, linux]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: src-tauri/tauri.conf.json
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+      # The same notes become the release body and the in-app "What's new".
+      - name: Release notes
+        id: notes
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/releases/generate-notes"             -f tag_name="$GITHUB_REF_NAME" --jq .body > "$RUNNER_TEMP/notes.md"
+          echo "path=$RUNNER_TEMP/notes.md" >> "$GITHUB_OUTPUT"
+      # latest.json is what installed copies poll (releases/latest/download/latest.json).
+      - name: Updater manifest
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          shopt -s nullglob
+          cd dist
+          win=(*-setup.exe.sig)
+          lin=(*.AppImage.sig)
+          if [ ${#win[@]} -eq 0 ] && [ ${#lin[@]} -eq 0 ]; then
+            echo "::warning title=No latest.json::No signed update files were built (TAURI_SIGNING_PRIVATE_KEY missing), so installed copies won't see this release in the app. See docs/RELEASING.md."
+            exit 0
+          fi
+          if jq -e '.plugins.updater.pubkey | startswith("REPLACE_WITH_PUBLIC_KEY")' ../src-tauri/tauri.conf.json > /dev/null; then
+            echo "::warning title=Updater public key not set::tauri.conf.json still has the placeholder public key, so copies built from this release can't install future updates. See docs/RELEASING.md."
+          fi
+          base="https://github.com/${{ github.repository }}/releases/download/$GITHUB_REF_NAME"
+          platforms='{}'
+          add() { # add <platform key> <signature file>
+            platforms=$(jq --arg k "$1" --arg sig "$(cat "$2")" --arg url "$base/${2%.sig}"               '. + {($k): {signature: $sig, url: $url}}' <<< "$platforms")
+          }
+          [ ${#win[@]} -gt 0 ] && add windows-x86_64 "${win[0]}"
+          [ ${#lin[@]} -gt 0 ] && add linux-x86_64 "${lin[0]}"
+          notes=""
+          [ -f "$RUNNER_TEMP/notes.md" ] && notes=$(cat "$RUNNER_TEMP/notes.md")
+          jq -n --arg version "${GITHUB_REF_NAME#v}" --arg notes "$notes"             --arg pub_date "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson platforms "$platforms"             '{version: $version, notes: $notes, pub_date: $pub_date, platforms: $platforms}' > latest.json
+          cat latest.json
       - name: Checksums
         run: |
           cd dist
@@ -77,5 +145,6 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
           draft: ${{ github.event_name == 'workflow_dispatch' }}

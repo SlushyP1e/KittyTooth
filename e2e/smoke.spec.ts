@@ -193,3 +193,22 @@ test("respects reduced motion", async ({ browser }) => {
   expect(["0.001ms", "1e-06s", "0s"]).toContain(dur);
   await ctx.close();
 });
+
+test("history lists saved sessions and opens one with graphs, zones and alerts", async ({ page }) => {
+  const errors = trackErrors(page);
+  await page.goto("/#/history");
+  await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
+  await expect(page.getByText("4 sessions saved on this computer")).toBeVisible();
+  await expect(page.getByText(/never uploaded/)).toBeVisible();
+  await page.getByRole("button", { name: /Yesterday/ }).click();
+  await expect(page.getByRole("button", { name: "Export CSV" })).toBeVisible();
+  await expect(page.getByRole("img", { name: /Heart rate graph, between/ })).toBeVisible();
+  await expect(page.getByRole("img", { name: /HRV graph, between/ })).toBeVisible();
+  await expect(page.getByText("Time in zones")).toBeVisible();
+  await expect(page.getByText("above 140 bpm", { exact: false })).toBeVisible();
+  // Delete needs a second, explicit click.
+  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("button", { name: "Delete for good" }).click();
+  await expect(page.getByText("3 sessions saved on this computer")).toBeVisible();
+  expect(errors).toEqual([]);
+});

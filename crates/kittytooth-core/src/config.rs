@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 
 use crate::alerts::AlertConfig;
 use crate::error::{KtError, KtResult};
+use crate::history::HistoryConfig;
 use crate::processing::{Smoothing, ZoneConfig};
 use crate::source::SourceKind;
 
@@ -27,10 +28,14 @@ pub struct Config {
     pub processing: ProcessingConfig,
     pub zones: ZoneConfig,
     pub alerts: AlertConfig,
+    /// Saved session history (local only).
+    pub history: HistoryConfig,
     pub osc: OscConfig,
     pub ui: UiConfig,
     pub overlay: OverlayConfig,
+    pub steamvr: SteamVrConfig,
     pub debug: DebugConfig,
+    pub updates: UpdateConfig,
 }
 
 impl Default for Config {
@@ -42,10 +47,13 @@ impl Default for Config {
             processing: ProcessingConfig::default(),
             zones: ZoneConfig::default(),
             alerts: AlertConfig::default(),
+            history: HistoryConfig::default(),
             osc: OscConfig::default(),
             ui: UiConfig::default(),
             overlay: OverlayConfig::default(),
+            steamvr: SteamVrConfig::default(),
             debug: DebugConfig::default(),
+            updates: UpdateConfig::default(),
         }
     }
 }
@@ -386,11 +394,84 @@ impl Default for OverlayConfig {
     }
 }
 
+/// Optional SteamVR integration: an in-headset BPM overlay and controller buzz on alerts.
+/// String fields (not enums) so a bad hand edit falls back to the default instead of making the
+/// whole file unreadable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SteamVrConfig {
+    pub enabled: bool,
+    /// Show the heart rate overlay in the headset.
+    pub overlay: bool,
+    /// Where the overlay sits: "left_wrist", "right_wrist" or "hud".
+    pub attach: String,
+    /// "small", "medium" or "large".
+    pub size: String,
+    /// Overlay opacity in percent (20..=100).
+    pub opacity: u32,
+    /// Fade a wrist overlay out unless you look at it (alerts always show).
+    pub fade: bool,
+    /// How close to the centre of view it must be: "narrow", "normal" or "wide".
+    pub fade_angle: String,
+    /// Buzz the controllers when a heart rate alert fires or reminds.
+    pub haptics: bool,
+    /// Which controller buzzes: "left", "right" or "both".
+    pub haptics_hand: String,
+}
+
+impl Default for SteamVrConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            overlay: true,
+            attach: "left_wrist".into(),
+            size: "medium".into(),
+            opacity: 90,
+            fade: true,
+            fade_angle: "normal".into(),
+            haptics: true,
+            haptics_hand: "both".into(),
+        }
+    }
+}
+
+impl SteamVrConfig {
+    pub fn sanitize(&mut self) {
+        let d = SteamVrConfig::default();
+        if !matches!(self.attach.as_str(), "left_wrist" | "right_wrist" | "hud") {
+            self.attach = d.attach;
+        }
+        if !matches!(self.size.as_str(), "small" | "medium" | "large") {
+            self.size = d.size;
+        }
+        if !matches!(self.fade_angle.as_str(), "narrow" | "normal" | "wide") {
+            self.fade_angle = d.fade_angle;
+        }
+        if !matches!(self.haptics_hand.as_str(), "left" | "right" | "both") {
+            self.haptics_hand = d.haptics_hand;
+        }
+        self.opacity = self.opacity.clamp(20, 100);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DebugConfig {
     /// Log BLE packet -> OSC send latency for every packet.
     pub log_latency: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateConfig {
+    /// Check GitHub for a new version on launch and every 6 hours. Never installs by itself.
+    pub auto_check: bool,
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self { auto_check: true }
+    }
 }
 
 impl Config {
@@ -400,6 +481,7 @@ impl Config {
         self.device.stale_timeout_secs = self.device.stale_timeout_secs.clamp(2, 60);
         self.zones.sanitize();
         self.alerts.sanitize();
+        self.history.sanitize();
         self.osc.max_rate = self.osc.max_rate.clamp(1, MAX_RATE_CAP);
         if self.osc.keepalive_ms != 0 {
             self.osc.keepalive_ms = self.osc.keepalive_ms.clamp(200, 10_000);
@@ -451,6 +533,7 @@ impl Config {
         if self.overlay.port < 1024 {
             self.overlay.port = OverlayConfig::default().port;
         }
+        self.steamvr.sanitize();
         self
     }
 }
@@ -671,6 +754,15 @@ mod tests {
         assert_eq!(c.osc.max_rate, 20);
         assert_eq!(c.device.stale_timeout_secs, 5);
         assert_eq!(c.ui.theme, Theme::Dark);
+        assert!(c.updates.auto_check);
+    }
+
+    #[test]
+    fn update_check_defaults_on_for_older_files() {
+        let (c, _) = ConfigStore::parse(r#"{"schema_version":3,"ui":{"theme":"light"}}"#).unwrap();
+        assert!(c.updates.auto_check);
+        let (c, _) = ConfigStore::parse(r#"{"schema_version":3,"updates":{"auto_check":false}}"#).unwrap();
+        assert!(!c.updates.auto_check);
     }
 
     #[test]
@@ -835,6 +927,32 @@ mod tests {
         assert_eq!(c.source.osc_input.port, 9010);
         assert_eq!(c.source.osc_input.address, "/avatar/parameters/HR");
         assert_eq!(c.source.hyperate.device_id, "abc");
+    }
+
+    #[test]
+    fn steamvr_defaults_and_sanitize() {
+        let c = Config::default();
+        assert!(!c.steamvr.enabled, "SteamVR is opt-in");
+        assert_eq!(c.steamvr.attach, "left_wrist");
+        let (c, _) = ConfigStore::parse(
+            r#"{"schema_version":3,"steamvr":{"enabled":true,"attach":"forehead","size":"huge","opacity":3,"haptics_hand":"feet","fade_angle":"sideways"}}"#,
+        )
+        .unwrap();
+        assert!(c.steamvr.enabled);
+        assert_eq!(c.steamvr.attach, "left_wrist");
+        assert_eq!(c.steamvr.size, "medium");
+        assert_eq!(c.steamvr.opacity, 20);
+        assert_eq!(c.steamvr.haptics_hand, "both");
+        assert_eq!(c.steamvr.fade_angle, "normal");
+        assert!(c.steamvr.fade, "fade defaults on");
+        assert!(
+            c.steamvr.overlay && c.steamvr.haptics,
+            "missing fields default on"
+        );
+        let (c, _) =
+            ConfigStore::parse(r#"{"schema_version":3,"steamvr":{"attach":"hud","opacity":900}}"#).unwrap();
+        assert_eq!(c.steamvr.attach, "hud");
+        assert_eq!(c.steamvr.opacity, 100);
     }
 
     #[test]

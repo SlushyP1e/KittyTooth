@@ -216,6 +216,92 @@ export type DisconnectBehavior = "hold_last" | "send_zero";
 export type Motion = "on" | "reduced" | "system";
 export type Theme = "dark" | "light" | "system";
 export type GraphRange = "60s" | "5m" | "session";
+export type Retention = "days30" | "days90" | "days365" | "forever";
+
+export interface HistoryConfig {
+  enabled: boolean;
+  retention: Retention;
+  max_mb: number;
+}
+
+/** One saved session in the History list. */
+export interface SessionSummary {
+  id: string;
+  start_ms: number;
+  /** Time of the last valid reading. */
+  end_ms: number;
+  source: SourceKind;
+  device: string | null;
+  min_bpm: number;
+  avg_bpm: number;
+  max_bpm: number;
+  samples: number;
+  alerts: number;
+  has_rr: boolean;
+  /** Still being recorded. */
+  active: boolean;
+  bytes: number;
+}
+
+export interface SessionSample {
+  t_ms: number;
+  bpm: number;
+  raw: number;
+  rr_ms: number[];
+}
+
+export interface SessionAlert {
+  t_ms: number;
+  kind: AlertKind;
+  bpm: number;
+  threshold: number;
+}
+
+export interface HrvPoint {
+  t_ms: number;
+  rmssd_ms: number;
+}
+
+/** A whole saved session for the detail view. */
+export interface Session {
+  summary: SessionSummary;
+  zones: Config["zones"];
+  max_hr: number;
+  samples: SessionSample[];
+  alerts: SessionAlert[];
+  /** Seconds in zones 0..5. */
+  zone_secs: [number, number, number, number, number, number];
+  hrv: HrvPoint[];
+}
+
+export type VrAttach = "left_wrist" | "right_wrist" | "hud";
+export type VrSize = "small" | "medium" | "large";
+export type VrHand = "left" | "right" | "both";
+export type VrFadeAngle = "narrow" | "normal" | "wide";
+
+export interface SteamVrConfig {
+  enabled: boolean;
+  /** Show the heart rate overlay in the headset. */
+  overlay: boolean;
+  attach: VrAttach;
+  size: VrSize;
+  /** Percent, 20..100. */
+  opacity: number;
+  /** Fade a wrist overlay out unless you look at it (alerts always show). */
+  fade: boolean;
+  fade_angle: VrFadeAngle;
+  /** Buzz the controllers when an alert fires or reminds. */
+  haptics: boolean;
+  haptics_hand: VrHand;
+}
+
+export type SteamVrState = "off" | "not_installed" | "not_running" | "connected" | "error";
+
+export interface SteamVrStatus {
+  state: SteamVrState;
+  version: string | null;
+  message: string | null;
+}
 
 export interface CustomMapping {
   address: string;
@@ -261,6 +347,7 @@ export interface Config {
   processing: { smoothing: Smoothing };
   zones: { age: number | null; manual_max_hr: number; thresholds: [number, number, number, number, number] };
   alerts: AlertConfig;
+  history: HistoryConfig;
   osc: {
     targets: OscTarget[];
     keepalive_ms: number;
@@ -280,7 +367,34 @@ export interface Config {
     motion: Motion;
   };
   overlay: { enabled: boolean; port: number };
+  steamvr: SteamVrConfig;
   debug: { log_latency: boolean };
+  updates: UpdateConfig;
+}
+
+export interface UpdateConfig {
+  /** Check for a new version on launch and every 6 hours. Never installs by itself. */
+  auto_check: boolean;
+}
+
+/** How this copy was installed: the portable exe can't replace itself. */
+export type InstallKind = "installer" | "app_image" | "portable";
+
+/** An available update (Rust: kittytooth_core::update::UpdateInfo). */
+export interface UpdateInfo {
+  current: string;
+  version: string;
+  notes: string | null;
+  date: string | null;
+  install_kind: InstallKind;
+  /** False for portable copies: open the release page instead of installing. */
+  can_install: boolean;
+  release_url: string;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
 }
 
 export interface AppInfo {
@@ -290,6 +404,8 @@ export interface AppInfo {
   overlay_error: UserError | null;
   log_dir: string;
   config_path: string;
+  /** Folder holding saved sessions. */
+  history_dir: string | null;
   notice: UserError | null;
   secrets: SecretStatus[];
   hyperate_builtin_key: boolean;
@@ -300,6 +416,7 @@ export interface InitialState {
   config: Config;
   devices: DiscoveredDevice[];
   info: AppInfo;
+  steamvr: SteamVrStatus;
 }
 
 export interface ConfigResult {
@@ -319,4 +436,8 @@ export interface BackendEvents {
   devices: DiscoveredDevice[];
   config: Config;
   alert: AlertEvent;
+  update_progress: UpdateProgress;
+  /** A saved session began, ended or was removed. */
+  sessions: null;
+  steamvr: SteamVrStatus;
 }

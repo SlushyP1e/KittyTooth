@@ -5,6 +5,8 @@
 
 import type { Backend, Unlisten } from "./backend";
 import { defaultConfig, emptySnapshot } from "../defaults";
+import { csvFileName, sessionCsv } from "../sessions";
+import { mockSessions } from "./mock-sessions";
 import type {
   BackendEvents,
   Config,
@@ -18,7 +20,10 @@ import type {
   Capabilities,
   SecretKind,
   SecretStatus,
+  Session,
   SourceKind,
+  UpdateInfo,
+  SteamVrStatus,
   UserError,
 } from "../types";
 
@@ -81,7 +86,20 @@ export interface MockOptions {
   sampleMs?: number;
   /** Prefilled history in seconds. */
   prefill?: number;
+  /** Fake update on offer: "available" (default), "portable", "none" or "error". */
+  update?: "available" | "portable" | "none" | "error";
 }
+
+/** The pretend release the demo UI offers. */
+export const MOCK_UPDATE_VERSION = "1.3.0";
+const MOCK_UPDATE_NOTES = `## What's new
+* Check for updates from Settings, with release notes right in the app
+* Smoother heart animation at high BPM
+
+## Fixes
+* The tray icon no longer flickers when the sensor reconnects
+
+**Full Changelog**: https://github.com/SlushyP1e/KittyTooth/compare/v1.2.0...v1.3.0`;
 
 export interface MockBackend extends Backend {
   dispose(): void;
@@ -93,6 +111,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
   const scenario = opts.scenario ?? (params.get("mock") as MockOptions["scenario"]) ?? "demo";
   const sampleMs = opts.sampleMs ?? 1000;
+  const updateMode = opts.update ?? (params.get("update") as MockOptions["update"]) ?? "available";
+  let updateInstalled = false;
   const prefill = opts.prefill ?? 300;
   const rand = mulberry32(1234);
   const listeners = new Map<keyof BackendEvents, Set<AnyListener>>();
@@ -111,6 +131,19 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   let sampleTimer: ReturnType<typeof setTimeout> | null = null;
   let beatTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  let sessions: Session[] | null = null;
+  const savedSessions = () => (sessions ??= mockSessions());
+  const findSession = (id: string): Session => {
+    const s = savedSessions().find((x) => x.summary.id === id);
+    if (!s)
+      throw {
+        code: "invalid_input",
+        title: "Session not found",
+        message: "That session no longer exists.",
+        fix: "Pick another session from the list.",
+      } satisfies UserError;
+    return s;
+  };
 
   const info: AppInfo = {
     version: "1.0.0",
@@ -119,6 +152,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     overlay_error: null,
     log_dir: "%APPDATA%\\app.kittytooth.desktop\\logs",
     config_path: "%APPDATA%\\app.kittytooth.desktop\\config.json",
+    history_dir: "%LOCALAPPDATA%\\app.kittytooth.desktop\\sessions",
     notice: null,
     secrets: [],
     hyperate_builtin_key: true,
@@ -131,6 +165,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     });
   }
   info.secrets = secretStatuses();
+  // A browser has no SteamVR: "not running" once turned on.
+  const steamvrOf = (c: Config): SteamVrStatus => ({
+    state: c.steamvr?.enabled ? "not_running" : "off",
+    version: null,
+    message: null,
+  });
+  let steamvr = steamvrOf(config);
 
   function emit<K extends keyof BackendEvents>(event: K, payload: BackendEvents[K]) {
     listeners.get(event)?.forEach((cb) => cb(structuredClone(payload)));
@@ -455,7 +496,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     peek: () => structuredClone(snap),
     async getState(): Promise<InitialState> {
-      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info });
+      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info, steamvr });
     },
     async setConfig(c: Config): Promise<ConfigResult> {
       const next = structuredClone(c);
@@ -475,6 +516,11 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         stats: { sent: 0, coalesced: 0, errors: 0, last_error: null },
       }));
       info.overlay_url = config.overlay.enabled ? `http://127.0.0.1:${config.overlay.port}/overlay` : null;
+      const vr = steamvrOf(config);
+      if (vr.state !== steamvr.state) {
+        steamvr = vr;
+        emit("steamvr", vr);
+      }
       publish();
       return structuredClone({ config, info });
     },
@@ -583,6 +629,31 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     async getOscLog() {
       return structuredClone(log);
     },
+    async listSessions() {
+      return structuredClone(savedSessions().map((s) => s.summary));
+    },
+    async getSession(id) {
+      return structuredClone(findSession(id));
+    },
+    async deleteSession(id) {
+      findSession(id);
+      sessions = savedSessions().filter((s) => s.summary.id !== id);
+      emit("sessions", null);
+      return structuredClone(sessions.map((s) => s.summary));
+    },
+    async exportSession(id) {
+      const s = findSession(id);
+      const name = csvFileName(s.summary.start_ms);
+      if (typeof document !== "undefined" && typeof URL.createObjectURL === "function") {
+        const blob = new Blob([sessionCsv(s)], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      return name;
+    },
     async exportConfig() {
       if (typeof document !== "undefined" && typeof URL.createObjectURL === "function") {
         const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
@@ -618,6 +689,43 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     async showMain() {},
     async startDrag() {},
+    async checkUpdate(): Promise<UpdateInfo | null> {
+      await new Promise<void>((r) => later(400, r));
+      if (updateMode === "error") {
+        throw {
+          code: "update_check_failed",
+          title: "Couldn't check for updates",
+          message: "GitHub didn't answer, or the release has no update information yet.",
+          fix: "Check your internet connection and try again later.",
+        } satisfies UserError;
+      }
+      if (updateMode === "none" || updateInstalled) return null;
+      const portable = updateMode === "portable";
+      return {
+        current: info.version,
+        version: MOCK_UPDATE_VERSION,
+        notes: MOCK_UPDATE_NOTES,
+        date: "2026-11-20T12:00:00Z",
+        install_kind: portable ? "portable" : "installer",
+        can_install: !portable,
+        release_url: `https://github.com/SlushyP1e/KittyTooth/releases/tag/v${MOCK_UPDATE_VERSION}`,
+      };
+    },
+    async installUpdate() {
+      if (updateMode === "portable") throw new Error("portable copies can't install");
+      const total = 9_400_000;
+      for (let d = 0; d < total; ) {
+        await new Promise<void>((r) => later(120, r));
+        d = Math.min(total, d + 1_900_000);
+        emit("update_progress", { downloaded: d, total });
+      }
+      // Pretend the app restarted on the new version.
+      updateInstalled = true;
+      info.version = MOCK_UPDATE_VERSION;
+    },
+    async openRelease(version: string) {
+      if (typeof window !== "undefined") window.open(`https://github.com/SlushyP1e/KittyTooth/releases/tag/v${version}`, "_blank", "noopener");
+    },
     async on<K extends keyof BackendEvents>(event: K, cb: (p: BackendEvents[K]) => void): Promise<Unlisten> {
       let set = listeners.get(event);
       if (!set) listeners.set(event, (set = new Set()));

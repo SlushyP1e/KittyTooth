@@ -240,17 +240,81 @@ linked from <https://developers.hyperate.io/>, whose live demo uses the same pro
   full strength and slightly thicker; the others are at 40 %. This deliberately overrides the
   redesign's single-accent rule for this one data encoding. The graph stays pink-only.
 
+### Saved session history
+* One append-only text file per session (`<start ms>.kts` in the local app data folder) plus a
+  JSON summary written when the session ends, instead of SQLite. No C toolchain or new
+  dependency, a crash loses at most the line being written, files without a summary are finished
+  on the next start, and a session is easy to inspect or delete by hand. About 70 KB per hour.
+* Recording rules live in a pure `history::Recorder` (start on the first valid reading, about one
+  sample per second, end after 3 quiet minutes, Reset session, quit or turning recording off,
+  drop sessions under 30 s) so they are unit tested with plain timestamps. Disk writes run on a
+  dedicated thread fed by a channel, so the OSC hot path never waits on the disk.
+* Zone settings are copied into each session's header so its zone times don't change when the
+  settings do. Min/avg/max use the raw BPM; the graph shows the displayed (smoothed) BPM.
+* Test alerts and test sweeps are never recorded. Everything stays on the PC; export is only
+  through the save dialog.
+
 ### Also fixed
 * OSC output now uses plain non-blocking `std::net::UdpSocket` sends. Tokio's `try_send_to`
   can return `WouldBlock` on a freshly bound socket before readiness is first observed, which
   dropped the first few OSC messages under load.
 
+## In-app updates
+
+* `tauri-plugin-updater` polls `latest.json` from the latest GitHub release on launch and
+  every 6 hours. The check and install run in Rust commands (`src-tauri/src/updates.rs`), not
+  the plugin's JS API, so the version rule (stable builds never get pre-releases) and the
+  portable vs installed decision live in `kittytooth-core::update` with unit tests.
+* The release workflow builds with `tauri build` directly, not tauri-action, so the publish
+  job writes `latest.json` itself from the `.sig` files. Signing is optional: without the
+  `TAURI_SIGNING_PRIVATE_KEY` secret the release still ships, minus the update files.
+* Portable copies are detected by the missing NSIS `uninstall.exe` next to the exe (Linux:
+  no `$APPIMAGE`). They get a release page link, since a running exe can't replace itself.
+  Until a real public key replaces the placeholder in `tauri.conf.json`, every copy behaves
+  this way.
+* Installing needs a click, and a second one while heart rate is live. Release notes are
+  shown as plain text, never as HTML.
+## SteamVR overlay and haptics
+* **Binding: load SteamVR's `vrclient` at runtime with `libloading`, no SDK crate.** The `openvr`
+  / `openvr_sys` crates build the OpenVR C++ SDK with cmake and run bindgen (libclang), and
+  `ovr_overlay` needs autocxx (also libclang); all are heavier on CI and some lag the SDK.
+  Instead `steamvr/ffi.rs` does what `openvr_api.dll` does: read `openvrpaths.vrpath`
+  (`%LOCALAPPDATA%\openvr\` or `~/.config/openvr/`), load `bin/vrclient_x64.dll` or
+  `bin/linux64/vrclient.so`, get `IVRClientCore_003` from `VRClientCoreFactory`, then the C
+  function tables `FnTable:IVRSystem_026` and `FnTable:IVROverlay_028`. Struct layouts and table
+  indices were taken from OpenVR 2.15.6 (`openvr_capi.h`, `src/ivrclientcore.h`). Nothing is needed
+  at build time, so CI builds it on Windows and Linux as is; no feature flag.
+* **Never launches SteamVR.** It first initialises as a *background* app, which fails with
+  `NoServerForBackgroundApp` (121) when SteamVR isn't running, then reconnects as an *overlay*
+  app. It probes every 5 s (15 s if not installed) and acknowledges `VREvent_Quit` so SteamVR can
+  close.
+* **Own OS thread**, reading only the engine's watch/broadcast channels; a slow SteamVR can't
+  touch the OSC path. A panic there sets an error status instead of taking the app down.
+* **Overlay image drawn in Rust** (`steamvr/render.rs`, 512x256 RGBA uploaded with
+  `SetOverlayRaw` at most every 250 ms and only when it changes). The bundled fonts are woff2,
+  which would need a decoder, so digits and the few labels (BPM, HIGH, LOW, TEST) are rounded
+  strokes with distance-field anti-aliasing, and the logo is the cat-head path from `Logo.svelte`.
+* **No flicker on updates: two overlays, double-buffered.** Re-uploading one overlay with
+  `SetOverlayRaw` blanked it for a frame in the headset. The new image now goes to a hidden twin
+  overlay at the same pose, which is shown with a higher sort order; the old one is hidden 60 ms
+  later (a few compositor frames). Uploads happen only when the rendered pixels differ, at most
+  every 250 ms.
+* **Fade when not looking** (wrist): every ~25 ms the thread reads the HMD and controller poses
+  (`GetDeviceToAbsoluteTrackingPose`), works out the overlay's world pose (controller x attach
+  offset), and maps the angle from the view centre (smoothstep between 20° and 38° for "normal")
+  and the card's facing angle to a target alpha, eased over 0.2 s and multiplied by the opacity
+  setting. Active alerts force full visibility. The math is in `steamvr/fade.rs` with unit tests.
+* **Haptics use the legacy `TriggerHapticPulse`** (pulses of up to 4 ms, one per 5 ms, played as
+  a 90 ms + 70 ms "lub-dub"). The SteamVR Input alternative needs an action manifest and default
+  bindings per controller type.
+
 ## Stack deviations
 
 * None. Tauri 2, btleplug, rosc, tokio, serde, Svelte 5 + TS + Vite as specified. Additions:
   `mdns-sd` (OSCQuery mDNS), `tracing` + `tracing-appender` (rotating logs, 7 daily files),
-  Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`, `opener`;
-  `tokio-tungstenite` (native-tls) for the Pulsoid/HypeRate WebSockets and `keyring` for
-  secrets.
+  Tauri plugins `single-instance`, `autostart`, `dialog`, `clipboard-manager`, `opener`,
+  `notification`, `updater`; `semver` for update version checks;
+  `tokio-tungstenite` (native-tls) for the Pulsoid/HypeRate WebSockets, `keyring` for
+  secrets and `libloading` (SteamVR's client, loaded at runtime).
 * `@playwright/test` is pinned to 1.63.0 to match the browser build available in the
   development environment; CI installs the matching Chromium.

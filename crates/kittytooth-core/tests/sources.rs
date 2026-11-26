@@ -265,6 +265,7 @@ fn opts() -> EngineOptions {
     EngineOptions {
         mdns: false,
         network_link_floor: Duration::ZERO,
+        ..Default::default()
     }
 }
 
