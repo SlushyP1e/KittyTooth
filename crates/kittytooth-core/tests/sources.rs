@@ -277,6 +277,7 @@ fn net_engine(cfg: Config, ws_port: u16, secrets: Arc<MemorySecrets>) -> EngineH
             pulsoid_ws: format!("ws://127.0.0.1:{ws_port}/api/v2/data/real_time"),
             hyperate_ws: format!("ws://127.0.0.1:{ws_port}/ws"),
         },
+        ant: kittytooth_core::source::ant::default_opener(),
     };
     engine::start_with_factory(cfg, None, Arc::new(factory), opts())
 }

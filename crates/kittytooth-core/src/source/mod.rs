@@ -1,7 +1,8 @@
-//! Heart rate sources. Every source (Bluetooth LE, Pulsoid, HypeRate, OSC input, demo) implements
+//! Heart rate sources. Every source (Bluetooth LE, ANT+, Pulsoid, HypeRate, OSC input, demo) implements
 //! [`HeartRateSource`] and emits the same [`HrSample`] through [`SensorEvent`], so the engine's
 //! processing and OSC output never care where a reading came from.
 
+pub mod ant;
 pub mod hyperate;
 pub mod osc_input;
 pub mod pulsoid;
@@ -31,11 +32,14 @@ pub enum SourceKind {
     Hyperate,
     Osc,
     Demo,
+    /// ANT+ heart rate monitor through a USB ANT stick.
+    Ant,
 }
 
 impl SourceKind {
-    pub const ALL: [SourceKind; 5] = [
+    pub const ALL: [SourceKind; 6] = [
         SourceKind::Ble,
+        SourceKind::Ant,
         SourceKind::Pulsoid,
         SourceKind::Hyperate,
         SourceKind::Osc,
@@ -49,6 +53,7 @@ impl SourceKind {
             SourceKind::Hyperate => "hyperate",
             SourceKind::Osc => "osc",
             SourceKind::Demo => "demo",
+            SourceKind::Ant => "ant",
         }
     }
 
@@ -68,6 +73,13 @@ impl SourceKind {
                 rr: true,
                 battery: true,
                 contact: true,
+            },
+            // ANT+ HRM pages carry beat event times (RR intervals) and, on most straps, battery,
+            // but no skin-contact flag.
+            SourceKind::Ant => Capabilities {
+                rr: true,
+                battery: true,
+                contact: false,
             },
             // Pulsoid's v2 real-time API streams heart rate and the monitor's battery level.
             SourceKind::Pulsoid => Capabilities {
@@ -316,6 +328,8 @@ pub struct DefaultFactory {
     pub backend: Arc<dyn HeartRateBackend>,
     pub secrets: Arc<dyn SecretStore>,
     pub endpoints: Endpoints,
+    /// Opens the ANT stick (the USB opener, or a fake in tests).
+    pub ant: Arc<dyn ant::StickOpener>,
 }
 
 impl DefaultFactory {
@@ -324,6 +338,7 @@ impl DefaultFactory {
             backend,
             secrets,
             endpoints: Endpoints::default(),
+            ant: ant::default_opener(),
         }
     }
 }
@@ -380,6 +395,7 @@ impl SourceFactory for DefaultFactory {
             SourceKind::Osc => Ok(Arc::new(osc_input::OscInputSource::new(
                 config.source.osc_input.clone(),
             ))),
+            SourceKind::Ant => Ok(Arc::new(ant::AntSource::new(self.ant.clone()))),
         }
     }
 
@@ -426,6 +442,12 @@ mod tests {
         assert!(!SourceKind::Pulsoid.capabilities().rr);
         assert_eq!(SourceKind::Hyperate.capabilities(), Capabilities::default());
         assert!(!SourceKind::Osc.reconnects_on_silence());
+        assert!(SourceKind::Ant.capabilities().rr);
+        assert!(!SourceKind::Ant.capabilities().contact);
+        assert!(SourceKind::Ant.reconnects_on_silence());
+        assert!(!SourceKind::Ant.is_network());
+        assert_eq!(serde_json::to_string(&SourceKind::Ant).unwrap(), "\"ant\"");
+        assert_eq!(SourceKind::Ant.tag(), "ant");
         assert_eq!(SourceKind::of_device("demo:strap"), SourceKind::Demo);
         assert_eq!(
             serde_json::to_string(&SourceKind::Hyperate).unwrap(),
@@ -467,5 +489,6 @@ mod tests {
             "HypeRate 1A2B3C"
         );
         assert_eq!(f.build(SourceKind::Osc, &c).unwrap().kind(), SourceKind::Osc);
+        assert_eq!(f.build(SourceKind::Ant, &c).unwrap().kind(), SourceKind::Ant);
     }
 }

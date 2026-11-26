@@ -38,6 +38,7 @@ const OTHER_DEVICES: Omit<DiscoveredDevice, "last_seen_ms">[] = [
 const CAPS: Record<SourceKind, Capabilities> = {
   ble: { rr: true, battery: true, contact: true },
   demo: { rr: true, battery: true, contact: true },
+  ant: { rr: true, battery: true, contact: false },
   pulsoid: { rr: false, battery: true, contact: false },
   hyperate: { rr: false, battery: false, contact: false },
   osc: { rr: false, battery: false, contact: false },
@@ -378,6 +379,15 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
           });
         return connectTo(`hyperate:${id}`, `HypeRate ${id}`, "hyperate");
       }
+      case "ant":
+        if (scenario === "error")
+          return failSource("ant", {
+            code: "ant_stick_missing",
+            title: "No ANT+ stick found",
+            message: "KittyTooth can't find a USB ANT+ stick on this PC.",
+            fix: "Plug in an ANT+ USB stick (Garmin USB2 / USB-m or a compatible clone). KittyTooth picks it up automatically; a USB extension cable keeps it close to you.",
+          });
+        return connectTo("ant:12345", "ANT+ HRM 12345", "ant");
       case "osc": {
         const port = config.source.osc_input.port;
         return connectTo(`osc:${port}`, `OSC input :${port}`, "osc");

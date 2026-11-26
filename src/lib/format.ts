@@ -9,10 +9,15 @@ import type {
   SourceKind,
 } from "./types";
 
-export const SOURCE_ORDER: SourceKind[] = ["ble", "pulsoid", "hyperate", "osc", "demo"];
+export const SOURCE_ORDER: SourceKind[] = ["ble", "ant", "pulsoid", "hyperate", "osc", "demo"];
 
 export const SOURCE_INFO: Record<SourceKind, { name: string; tag: string; help: string }> = {
   ble: { name: "Bluetooth sensor", tag: "ble", help: "A chest strap, armband or watch in heart rate broadcast mode." },
+  ant: {
+    name: "ANT+ sensor",
+    tag: "ant",
+    help: "A strap or watch broadcasting over ANT+, through a USB ANT+ stick. Gives Garmin watches HRV.",
+  },
   pulsoid: { name: "Pulsoid", tag: "pulsoid", help: "Heart rate from the Pulsoid app, through Pulsoid's real-time API." },
   hyperate: { name: "HypeRate", tag: "hyperate", help: "Heart rate from the HypeRate app, by its device ID." },
   osc: { name: "OSC input", tag: "osc", help: "Relay a heart rate another app sends to KittyTooth over OSC." },

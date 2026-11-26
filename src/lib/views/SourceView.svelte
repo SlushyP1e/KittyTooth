@@ -242,6 +242,27 @@
             </div>
           {/if}
         </div>
+      {:else if active === "ant"}
+        <div class="srow">
+          <div class="stext">
+            <p class="slabel">
+              {primary?.kind === "ant" && s.device?.id.startsWith("ant:") ? s.device.name : "Any ANT+ heart rate monitor"}
+            </p>
+            <p class="shelp">
+              Plug in a USB ANT+ stick and KittyTooth pairs with the first heart rate monitor it hears. On a Garmin watch,
+              turn on Broadcast Heart Rate. ANT+ carries beat timing, so HRV works even where Bluetooth gives none.
+            </p>
+          </div>
+        </div>
+        <div class="srow">
+          <div class="stext">
+            <p class="slabel">Stick not found or busy?</p>
+            <p class="shelp">
+              Only one app can use the stick at a time, so close Garmin Express or Zwift. On Windows the stick needs the
+              WinUSB driver; Zadig can install it.
+            </p>
+          </div>
+        </div>
       {:else if active === "osc"}
         <div class="srow">
           <div class="stext">

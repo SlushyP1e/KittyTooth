@@ -58,6 +58,14 @@ pub enum KtError {
     RateLimited(&'static str),
     #[error("{0} error: {1}")]
     Service(&'static str, String),
+    #[error("no ANT stick found")]
+    AntStickMissing,
+    #[error("ANT stick is in use by another program")]
+    AntStickBusy,
+    #[error("ANT stick driver not usable: {0}")]
+    AntDriver(String),
+    #[error("ANT stick error: {0}")]
+    AntStick(String),
 }
 
 /// What the UI shows for an error: never a stack trace, always a suggested fix.
@@ -102,6 +110,10 @@ impl KtError {
             KtError::Offline(_) => "offline",
             KtError::RateLimited(_) => "rate_limited",
             KtError::Service(..) => "service_error",
+            KtError::AntStickMissing => "ant_stick_missing",
+            KtError::AntStickBusy => "ant_stick_busy",
+            KtError::AntDriver(_) => "ant_driver",
+            KtError::AntStick(_) => "ant_error",
         }
     }
 
@@ -264,6 +276,36 @@ impl KtError {
                 format!("{service} reported a problem ({}).", short(detail)),
                 "This is usually temporary. KittyTooth keeps retrying; check the service's status page if it lasts.".into(),
             ),
+            KtError::AntStickMissing => (
+                "No ANT+ stick found",
+                "KittyTooth can't find a USB ANT+ stick on this PC.".into(),
+                "Plug in an ANT+ USB stick (Garmin USB2 / USB-m or a compatible clone). KittyTooth picks it up automatically; a USB extension cable keeps it close to you.".into(),
+            ),
+            KtError::AntStickBusy => (
+                "ANT+ stick is in use",
+                "Another program is using the ANT+ stick, and only one program can use it at a time.".into(),
+                "Close Garmin Express, Zwift, TrainerRoad or any other app using the stick (check the system tray too). KittyTooth keeps retrying.".into(),
+            ),
+            KtError::AntDriver(driver) => (
+                "ANT+ stick needs a different driver",
+                if driver.is_empty() {
+                    "The ANT+ stick's current driver doesn't let KittyTooth open it.".into()
+                } else {
+                    format!("The ANT+ stick uses the {driver} driver, which KittyTooth can't open.")
+                },
+                if cfg!(target_os = "windows") {
+                    "Install the WinUSB driver for the stick: run Zadig (zadig.akeo.ie), choose Options > List All Devices, pick the ANT USB stick, select WinUSB and press Replace Driver. Then unplug and replug the stick.".into()
+                } else if cfg!(target_os = "linux") {
+                    "Give your user access to the stick with a udev rule for USB ID 0fcf:1008 / 0fcf:1009 (see docs/DEVICES.md), then unplug and replug it.".into()
+                } else {
+                    "Unplug and replug the stick, and make sure no other app has claimed it.".into()
+                },
+            ),
+            KtError::AntStick(detail) => (
+                "ANT+ stick problem",
+                format!("The ANT+ stick reported a problem ({}).", short(detail)),
+                "Unplug the stick, wait a moment and plug it back in (a different USB port helps). KittyTooth reconnects on its own.".into(),
+            ),
         };
         UserError {
             code: self.code().into(),
@@ -345,6 +387,11 @@ mod tests {
             KtError::Offline("Pulsoid"),
             KtError::RateLimited("HypeRate"),
             KtError::Service("Pulsoid", "HTTP 503".into()),
+            KtError::AntStickMissing,
+            KtError::AntStickBusy,
+            KtError::AntDriver("libusb0".into()),
+            KtError::AntDriver(String::new()),
+            KtError::AntStick("x".into()),
         ];
         for e in all {
             let u = e.user();
