@@ -346,6 +346,8 @@ pub struct UiConfig {
     pub mini_always_on_top: bool,
     /// Graph range: "60s", "5m" or "session".
     pub graph_range: String,
+    /// Interface motion: "on" (always animate), "reduced", or "system" (follow the OS setting).
+    pub motion: String,
 }
 
 impl Default for UiConfig {
@@ -358,6 +360,7 @@ impl Default for UiConfig {
             autostart: false,
             mini_always_on_top: true,
             graph_range: "60s".into(),
+            motion: "on".into(),
         }
     }
 }
@@ -426,6 +429,9 @@ impl Config {
         }
         if !matches!(self.ui.graph_range.as_str(), "60s" | "5m" | "session") {
             self.ui.graph_range = "60s".into();
+        }
+        if !matches!(self.ui.motion.as_str(), "on" | "reduced" | "system") {
+            self.ui.motion = "on".into();
         }
         self.source.fallback.after_secs = self.source.fallback.after_secs.clamp(2, 120);
         if self.source.osc_input.port < 1024 {

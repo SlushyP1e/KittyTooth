@@ -58,18 +58,6 @@ a {
   display: flex;
   flex-direction: column;
   gap: var(--s6);
-  animation: page-in 280ms ease-out both;
-}
-
-@keyframes page-in {
-  from {
-    opacity: 0.4;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
-  }
 }
 
 .page-head {
@@ -116,28 +104,33 @@ a {
   font-weight: 500;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--muted);
+  color: var(--dim);
 }
 
 .section-label .spacer {
   flex: 1;
 }
 
-/* Hairline list: dividers come from the 1px gap over a --slate-3 container. */
+/* Card group: a bordered card whose rows are split by hairlines (the 1px gap over --line). */
 .hairlist {
   display: grid;
   gap: 1px;
-  background: var(--slate-3);
+  background: var(--line);
   border-radius: var(--r-row);
   overflow: hidden;
-  border: 0;
+  border: 1px solid var(--line);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
 .hairlist > * {
-  background: var(--slate-1);
+  background: var(--card);
+  transition: background 200ms;
+}
+
+.hairlist > .srow:hover {
+  background: color-mix(in srgb, var(--card), var(--text) 3%);
 }
 
 /* The one settings-row pattern: label + help on the left, control on the right. */
@@ -182,7 +175,8 @@ a {
 }
 
 .raised {
-  background: var(--slate-2);
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--line);
   border-radius: var(--r-row);
   padding: var(--s4);
 }
@@ -217,7 +211,13 @@ a {
   cursor: pointer;
   white-space: nowrap;
   text-decoration: none;
-  transition: background 120ms;
+  transition:
+    background 200ms,
+    transform 350ms var(--spring);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
 }
 
 .btn:hover {
@@ -278,15 +278,20 @@ a {
   padding: 0 var(--s3);
   border-radius: var(--r-pill);
   background: transparent;
-  box-shadow: inset 0 0 0 1px var(--slate-3);
+  box-shadow: inset 0 0 0 1px var(--line-2);
   color: var(--muted);
   font-family: var(--mono);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition:
-    background 120ms,
-    color 120ms;
+    background 200ms,
+    color 250ms,
+    transform 300ms var(--spring);
+}
+
+.chip:active {
+  transform: scale(0.95);
 }
 
 .chip:hover {
@@ -372,12 +377,23 @@ select {
   height: 34px;
   padding: 0 var(--s3);
   border-radius: var(--r-btn);
-  border: 1px solid var(--slate-3);
+  border: 1px solid var(--line-2);
   background: var(--slate-0);
   color: var(--text);
   font-family: var(--sans);
   font-size: 13.5px;
   min-width: 0;
+  transition:
+    border-color 200ms,
+    box-shadow 300ms var(--settle);
+}
+
+input[type="text"]:focus-visible,
+input[type="number"]:focus-visible,
+select:focus-visible {
+  outline: none;
+  border-color: var(--pink-line);
+  box-shadow: 0 0 0 3px var(--pink-soft);
 }
 
 input[type="number"],
@@ -475,12 +491,11 @@ input:disabled {
   background: transparent;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
-  }
+/* Motion off: driven by Settings > Appearance > Motion (data-motion is set by applyMotion). */
+:root[data-motion="reduced"] *,
+:root[data-motion="reduced"] *::before,
+:root[data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
 }

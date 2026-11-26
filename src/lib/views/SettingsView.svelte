@@ -5,7 +5,7 @@
   import ErrorBanner from "../components/ErrorBanner.svelte";
   import { ACCENT_PRESETS, isCustomAccent } from "../theme";
   import { ZONE_NAMES } from "../format";
-  import type { Smoothing, Theme } from "../types";
+  import type { Motion, Smoothing, Theme } from "../types";
 
   const c = $derived(app.config);
   const s = $derived(app.snapshot);
@@ -199,6 +199,24 @@
               { value: "system", label: "system" },
             ]}
             onchange={(v: Theme) => app.updateConfig((cfg) => (cfg.ui.theme = v))}
+          />
+        </div>
+      </div>
+      <div class="srow">
+        <div class="stext">
+          <span class="slabel">Motion</span>
+          <p class="shelp">Springy animations. "system" follows the Windows animation effects setting.</p>
+        </div>
+        <div class="sctrl">
+          <Choice
+            label="Motion"
+            value={c.ui.motion ?? "on"}
+            options={[
+              { value: "on", label: "on" },
+              { value: "reduced", label: "reduced" },
+              { value: "system", label: "system" },
+            ]}
+            onchange={(v: Motion) => app.updateConfig((cfg) => (cfg.ui.motion = v))}
           />
         </div>
       </div>

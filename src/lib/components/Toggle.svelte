@@ -65,7 +65,7 @@
     border: 0;
     background: var(--slate-3);
     cursor: pointer;
-    transition: background 220ms;
+    transition: background 250ms var(--settle);
     padding: 0;
   }
   .switch[aria-checked="true"] {
@@ -80,12 +80,19 @@
     border-radius: 50%;
     background: var(--muted);
     transition:
-      transform 220ms var(--spring),
-      background 220ms;
+      transform 400ms var(--spring),
+      width 180ms var(--settle),
+      background 250ms;
+  }
+  .switch:active:not(:disabled) .knob {
+    width: 20px;
   }
   .switch[aria-checked="true"] .knob {
     transform: translateX(18px);
     background: var(--knob-on);
+  }
+  .switch[aria-checked="true"]:active:not(:disabled) .knob {
+    transform: translateX(14px);
   }
   .switch:disabled {
     cursor: not-allowed;
