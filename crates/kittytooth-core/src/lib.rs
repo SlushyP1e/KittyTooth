@@ -3,6 +3,7 @@
 //! The crate has no Tauri dependency so the full pipeline (sensor → processing → OSC) can be
 //! unit and integration tested on any CI machine with the mock sensor.
 
+pub mod alerts;
 pub mod beat;
 pub mod config;
 pub mod engine;

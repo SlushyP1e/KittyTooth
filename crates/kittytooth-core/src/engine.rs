@@ -13,6 +13,7 @@ use serde::Serialize;
 use std::net::UdpSocket;
 use tokio::sync::{broadcast, mpsc, oneshot, watch};
 
+use crate::alerts::{AlertAction, AlertKind, AlertMonitor, AlertStatus};
 use crate::beat::{BeatScheduler, BeatSource};
 use crate::config::{Config, ConfigStore, DisconnectBehavior, RememberedDevice};
 use crate::error::{KtError, KtResult, UserError};
@@ -135,6 +136,8 @@ pub struct Snapshot {
     pub capabilities: Capabilities,
     /// Main and backup source connections.
     pub sources: Vec<SlotStatus>,
+    /// High or low heart rate alert showing right now.
+    pub alert: Option<AlertStatus>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
@@ -177,6 +180,14 @@ pub enum EngineEvent {
     Sample(HistoryPoint),
     /// Config changed (by the engine itself, e.g. remembering a device).
     ConfigChanged,
+    /// A heart rate alert fired (or a reminder for one that is still showing).
+    Alert {
+        alert_kind: AlertKind,
+        bpm: u16,
+        threshold: u16,
+        repeat: bool,
+        test: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -192,6 +203,8 @@ pub enum Command {
     /// Reconnects running sources (after a token or key changed).
     RestartSources,
     TestSweep(bool),
+    /// Fires a sample high alert so the user can check notifications and the chatbox.
+    TestAlert,
     ResetSession,
     Shutdown(oneshot::Sender<()>),
 }
@@ -277,6 +290,10 @@ impl EngineHandle {
 
     pub async fn test_sweep(&self, on: bool) -> KtResult<()> {
         self.send(Command::TestSweep(on)).await
+    }
+
+    pub async fn test_alert(&self) -> KtResult<()> {
+        self.send(Command::TestAlert).await
     }
 
     pub async fn reset_session(&self) -> KtResult<()> {
@@ -407,9 +424,21 @@ struct Slot {
     error: Option<UserError>,
     device: Option<DeviceInfo>,
     battery: Option<u8>,
+    /// Packets this connection, and how many carried RR intervals. Some sensors (Garmin
+    /// watches in broadcast mode, many optical bands) never send RR, so HRV is unavailable.
+    packets: u32,
+    rr_packets: u32,
 }
 
+/// After this many packets without a single RR interval, HRV is reported as unavailable.
+const NO_RR_AFTER_PACKETS: u32 = 15;
+
 impl Slot {
+    /// The connected device has shown it sends no RR intervals.
+    fn lacks_rr(&self) -> bool {
+        self.packets >= NO_RR_AFTER_PACKETS && self.rr_packets == 0
+    }
+
     fn fresh(&self, now: Instant, within: Duration) -> bool {
         self.last_valid
             .is_some_and(|t| now.saturating_duration_since(t) <= within)
@@ -483,6 +512,11 @@ struct Engine {
     oscq_rx: mpsc::Receiver<OscQueryEvent>,
     sweep: Option<Sweep>,
     latency_sum_us: u64,
+
+    // alerts
+    alerts: AlertMonitor,
+    /// A test alert shows until this time.
+    test_alert_until: Option<Instant>,
 }
 
 async fn recv_opt<T>(rx: &mut Option<mpsc::Receiver<T>>) -> Option<T> {
@@ -561,6 +595,8 @@ impl Engine {
             oscq_tx,
             oscq_rx,
             sweep: None,
+            alerts: AlertMonitor::default(),
+            test_alert_until: None,
             latency_sum_us: 0,
         }
     }
@@ -779,6 +815,8 @@ impl Engine {
             self.last_devices_publish = now;
         }
 
+        self.check_alerts(now);
+
         // Keepalive / sweep values / chatbox.
         self.emit_osc(now, false, true);
         self.chatbox(now);
@@ -875,6 +913,7 @@ impl Engine {
                     self.stop_sweep();
                 }
             }
+            Command::TestAlert => self.test_alert(Instant::now()),
             Command::ResetSession => {
                 self.processor.reset_session();
                 self.recent.clear();
@@ -1117,6 +1156,8 @@ impl Engine {
                 slot.error = None;
                 slot.retry_at_ms = None;
                 slot.battery = None;
+                slot.packets = 0;
+                slot.rr_packets = 0;
                 slot.state = ConnState::NoData;
                 *self.rx_mut(i) = Some(rx);
                 if i == self.live {
@@ -1289,6 +1330,10 @@ impl Engine {
         let slot = &mut self.slots[i];
         slot.last_packet = Some(now);
         slot.last_packet_ms = Some(epoch_ms());
+        slot.packets = slot.packets.saturating_add(1);
+        if !s.rr_ms.is_empty() {
+            slot.rr_packets = slot.rr_packets.saturating_add(1);
+        }
         if let Some(b) = s.battery {
             slot.battery = Some(b);
         }
@@ -1633,15 +1678,22 @@ impl Engine {
     }
 
     fn chatbox(&mut self, now: Instant) {
-        let cb = &self.config.osc.chatbox;
-        if !cb.enabled {
+        // While a real alert is showing (and alerts go to the chatbox), its text replaces the
+        // normal template so the regular message does not overwrite the warning.
+        let alert_template = self
+            .alerts
+            .active()
+            .filter(|_| self.config.alerts.chatbox)
+            .map(|k| self.config.alerts.text(k).to_string());
+        if !self.config.osc.chatbox.enabled && alert_template.is_none() {
             return;
         }
         let metrics = self.metrics(now);
         if !metrics.connected {
             return;
         }
-        let text = chatbox::render(&self.config.osc.chatbox.template, &metrics, self.chatbox_phase);
+        let template = alert_template.unwrap_or_else(|| self.config.osc.chatbox.template.clone());
+        let text = chatbox::render(&template, &metrics, self.chatbox_phase);
         let interval = Duration::from_secs_f64(self.config.osc.chatbox.interval_secs.max(2.0));
         let silent = self.config.osc.chatbox.silent;
         let test = self.sweep.is_some();
@@ -1655,6 +1707,137 @@ impl Engine {
         }
         if !out.is_empty() {
             self.chatbox_phase = !self.chatbox_phase;
+            self.send_all(out);
+        }
+    }
+
+    // ---------- alerts ----------
+
+    fn check_alerts(&mut self, now: Instant) {
+        if self.test_alert_until.is_some_and(|t| now >= t) {
+            self.test_alert_until = None;
+            if self.snap.alert.as_ref().is_some_and(|a| a.test) {
+                self.snap.alert = None;
+                self.dirty = true;
+                self.clear_alert_chatbox(now);
+            }
+        }
+        // The test sweep's made-up values never raise alerts.
+        let bpm = self
+            .snap
+            .bpm
+            .filter(|_| self.sweep.is_none() && self.data_valid(now));
+        match self.alerts.update(&self.config.alerts, bpm, now) {
+            Some(AlertAction::Fire {
+                kind,
+                bpm,
+                threshold,
+                repeat,
+            }) => {
+                tracing::info!(kind = ?kind, bpm, threshold, repeat, "heart rate alert");
+                let since_ms = match &self.snap.alert {
+                    Some(a) if repeat && !a.test => a.since_ms,
+                    _ => epoch_ms(),
+                };
+                self.test_alert_until = None;
+                self.snap.alert = Some(AlertStatus {
+                    kind,
+                    bpm,
+                    threshold,
+                    since_ms,
+                    test: false,
+                });
+                self.dirty = true;
+                self.fire_alert(kind, bpm, threshold, repeat, false, now);
+            }
+            Some(AlertAction::Clear { kind }) => {
+                tracing::info!(kind = ?kind, "heart rate alert cleared");
+                if self.snap.alert.as_ref().is_some_and(|a| !a.test) {
+                    self.snap.alert = None;
+                    self.dirty = true;
+                }
+                self.clear_alert_chatbox(now);
+            }
+            None => {
+                if let (Some(a), Some(b)) = (self.snap.alert.as_mut(), bpm) {
+                    if !a.test && a.bpm != b {
+                        a.bpm = b;
+                        self.dirty = true;
+                    }
+                }
+            }
+        }
+    }
+
+    fn test_alert(&mut self, now: Instant) {
+        if self.alerts.active().is_some() {
+            return; // a real alert is showing; do not cover it
+        }
+        let threshold = self.config.alerts.high_bpm;
+        let bpm = threshold.saturating_add(12);
+        self.snap.alert = Some(AlertStatus {
+            kind: AlertKind::High,
+            bpm,
+            threshold,
+            since_ms: epoch_ms(),
+            test: true,
+        });
+        self.dirty = true;
+        self.test_alert_until = Some(now + Duration::from_secs(8));
+        self.fire_alert(AlertKind::High, bpm, threshold, false, true, now);
+    }
+
+    /// Tells the UI (notification, sound) and, if chosen, VRChat's chatbox.
+    fn fire_alert(
+        &mut self,
+        kind: AlertKind,
+        bpm: u16,
+        threshold: u16,
+        repeat: bool,
+        test: bool,
+        now: Instant,
+    ) {
+        let _ = self.ev_tx.send(EngineEvent::Alert {
+            alert_kind: kind,
+            bpm,
+            threshold,
+            repeat,
+            test,
+        });
+        if !self.config.alerts.chatbox {
+            return;
+        }
+        let mut metrics = self.metrics(now);
+        metrics.hr = bpm;
+        let text = chatbox::render(self.config.alerts.text(kind), &metrics, self.chatbox_phase);
+        // The first alert plays VRChat's chatbox sound so it gets noticed; reminders stay quiet.
+        self.send_chatbox_now(&text, repeat, test, now);
+    }
+
+    /// Clears the alert from the chatbox when the normal chatbox output is off (when it is on,
+    /// the next regular message replaces it).
+    fn clear_alert_chatbox(&mut self, now: Instant) {
+        if self.config.alerts.chatbox && !self.config.osc.chatbox.enabled {
+            self.send_chatbox_now("", true, false, now);
+        } else {
+            for s in &mut self.senders {
+                s.reset_chatbox();
+            }
+        }
+    }
+
+    /// Sends chatbox text to every chatbox target right away, ignoring the send interval.
+    fn send_chatbox_now(&mut self, text: &str, silent: bool, test: bool, now: Instant) {
+        let mut out = Vec::new();
+        for (i, s) in self.senders.iter_mut().enumerate() {
+            if s.target.enabled && s.target.chatbox {
+                s.reset_chatbox();
+                if let Some(o) = s.chatbox(text, silent, Duration::ZERO, now, test) {
+                    out.push((i, o));
+                }
+            }
+        }
+        if !out.is_empty() {
             self.send_all(out);
         }
     }
@@ -1767,11 +1950,14 @@ impl Engine {
         let now = Instant::now();
         let live = &self.slots[self.live];
         let active = self.config.source.active;
-        let capabilities = live
+        let mut capabilities = live
             .source
             .as_ref()
             .map(|s| s.capabilities())
             .unwrap_or_else(|| active.capabilities());
+        if live.lacks_rr() {
+            capabilities.rr = false;
+        }
         let target = (self.running && matches!(active, SourceKind::Ble | SourceKind::Demo))
             .then(|| self.config.device.last_device.clone())
             .flatten();

@@ -18,6 +18,7 @@ use kittytooth_core::sensor::mock::MockBackend;
 use kittytooth_core::sensor::{CompositeBackend, HeartRateBackend};
 use kittytooth_core::source::{DefaultFactory, SecretStore};
 use tauri::{Emitter, Manager, RunEvent};
+use tauri_plugin_notification::NotificationExt;
 use tokio::sync::broadcast::error::RecvError;
 
 use crate::state::AppState;
@@ -37,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::set_config,
@@ -51,6 +53,7 @@ pub fn run() {
             commands::clear_secret,
             commands::open_link,
             commands::test_sweep,
+            commands::test_alert,
             commands::reset_session,
             commands::get_history,
             commands::get_osc_log,
@@ -154,6 +157,30 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Shows a desktop notification for a heart rate alert.
+fn notify_alert(
+    app: &tauri::AppHandle,
+    kind: kittytooth_core::alerts::AlertKind,
+    bpm: u16,
+    threshold: u16,
+    test: bool,
+) {
+    use kittytooth_core::alerts::AlertKind;
+    let side = match kind {
+        AlertKind::High => "above",
+        AlertKind::Low => "below",
+    };
+    let title = if test {
+        format!("{} (test)", kind.label())
+    } else {
+        kind.label().to_string()
+    };
+    let body = format!("{bpm} bpm, {side} your {threshold} bpm alert.");
+    if let Err(err) = app.notification().builder().title(title).body(body).show() {
+        tracing::warn!(error = %err, "could not show the alert notification");
+    }
+}
+
 /// Forwards engine state to the UI. Snapshots are throttled to display rate; beats and
 /// samples go out immediately (a few per second at most).
 fn spawn_bridges(app: &tauri::AppHandle, engine: &EngineHandle) {
@@ -195,6 +222,27 @@ fn spawn_bridges(app: &tauri::AppHandle, engine: &EngineHandle) {
                 }
                 Ok(EngineEvent::ConfigChanged) => {
                     let _ = a.emit("config", &e.config());
+                }
+                Ok(EngineEvent::Alert {
+                    alert_kind,
+                    bpm,
+                    threshold,
+                    repeat,
+                    test,
+                }) => {
+                    let _ = a.emit(
+                        "alert",
+                        serde_json::json!({
+                            "kind": alert_kind,
+                            "bpm": bpm,
+                            "threshold": threshold,
+                            "repeat": repeat,
+                            "test": test,
+                        }),
+                    );
+                    if e.config().alerts.notify {
+                        notify_alert(&a, alert_kind, bpm, threshold, test);
+                    }
                 }
                 Err(RecvError::Lagged(_)) => {}
                 Err(RecvError::Closed) => return,

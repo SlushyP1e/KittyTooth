@@ -158,7 +158,13 @@
       {#if s.capabilities.rr}
         <dd><span class="val tabular">{live ? formatMs(s.hrv_ms) : "--"}</span><span class="mono u">ms</span></dd>
       {:else}
-        <dd class="na"><span class="mono">not available from this source</span></dd>
+        <dd class="na">
+          <span class="mono"
+            >{(s.live_source ?? s.source) === "ble"
+              ? "this sensor doesn't send beat intervals"
+              : "not available from this source"}</span
+          >
+        </dd>
       {/if}
     </div>
   </dl>
