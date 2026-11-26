@@ -44,9 +44,13 @@ pub fn create(app: &AppHandle, cfg: &Config) -> tauri::Result<()> {
                     .try_state::<AppState>()
                     .map(|s| s.engine.config().ui.mini_always_on_top)
                     .unwrap_or(true);
-                if let Err(e) = windows::open_mini(app, on_top) {
-                    tracing::warn!(error = %e, "could not open mini window");
-                }
+                // Build off the menu callback (same WebView2 re-entrancy issue as commands).
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    if let Err(e) = windows::open_mini(&app, on_top) {
+                        tracing::warn!(error = %e, "could not open mini window");
+                    }
+                });
             }
             "toggle" => toggle_connection(app),
             "quit" => {

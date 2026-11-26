@@ -14,11 +14,16 @@ pub fn show_main(app: &AppHandle) {
     }
 }
 
+/// Opens (or focuses) the mini window. Must not be called synchronously from an IPC command or a
+/// menu callback on Windows; call it from an async command or a spawned task.
 pub fn open_mini(app: &AppHandle, on_top: bool) -> tauri::Result<()> {
     if let Some(w) = app.get_webview_window("mini") {
-        w.show()?;
-        w.set_focus()?;
-        return Ok(());
+        // A window left half-built by an earlier failure can refuse to show: replace it.
+        if w.show().and_then(|_| w.set_focus()).is_ok() {
+            return Ok(());
+        }
+        tracing::warn!("mini window unresponsive; recreating");
+        let _ = w.destroy();
     }
     WebviewWindowBuilder::new(app, "mini", WebviewUrl::App("index.html#/mini".into()))
         .title("KittyTooth Mini")

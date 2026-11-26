@@ -297,8 +297,11 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Cmd
     Ok(text)
 }
 
+/// Async on purpose: creating a webview window inside a synchronous command runs on the main
+/// thread while WebView2 is still inside the IPC callback, which deadlocks or half-creates the
+/// window on Windows (tauri docs, wry#583). Async commands run off the main thread.
 #[tauri::command]
-pub fn open_mini(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
+pub async fn open_mini(app: AppHandle, state: State<'_, AppState>) -> CmdResult<()> {
     windows::open_mini(&app, state.engine.config().ui.mini_always_on_top)
         .map_err(|e| err(KtError::Io(e.to_string())))
 }
