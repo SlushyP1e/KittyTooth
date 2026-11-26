@@ -169,10 +169,22 @@
         if (bLast !== bMax) pts.push(bucketX + 0.9, Y(bLast));
       };
       const segments: number[][] = [];
+      // Break the line only at gaps longer than this source's usual pace. Slow senders (phone
+      // apps relaying a watch) report every 5-25 s; mirrors the engine's learned stale timeout.
+      let longest = 0;
+      let gapCount = 0;
+      for (let i = Math.max(startIdx + 1, n - 12); i < n; i++) {
+        const g = history.t[i] - history.t[i - 1];
+        if (g <= 60_000) {
+          longest = Math.max(longest, g);
+          gapCount++;
+        }
+      }
+      const gapBreakMs = gapCount >= 3 ? Math.min(60_000, Math.max(5_000, longest * 1.5)) : 5_000;
       for (let i = startIdx; i < n; i++) {
         const t = history.t[i];
         const v = history.v[i];
-        if (prevT >= 0 && t - prevT > 5_000) {
+        if (prevT >= 0 && t - prevT > gapBreakMs) {
           flush();
           bucketX = -1;
           if (pts.length) segments.push(pts.splice(0));
@@ -191,7 +203,7 @@
       }
       flush();
       // Extend the live head to "now" so the line meets the right edge smoothly.
-      if (live && last != null && now - last < 3_000 && pts.length) {
+      if (live && last != null && now - last < gapBreakMs && pts.length) {
         pts.push(X(now), pts[pts.length - 1]);
       }
       if (pts.length) segments.push(pts);

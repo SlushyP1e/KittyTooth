@@ -150,6 +150,8 @@ fn start(cfg: Config, steps: Vec<MockStep>) -> (EngineHandle, Arc<MockBackend>) 
         backend.clone(),
         EngineOptions {
             mdns: false,
+            // Reconnect on silence right after the stale timeout, as before the BLE floor.
+            ble_link_floor: Duration::ZERO,
             ..Default::default()
         },
     );
@@ -818,4 +820,46 @@ async fn readings_are_recorded_to_session_history() {
     assert!(store.list().is_empty(), "{:?}", store.list());
     h.shutdown().await;
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Phone apps that relay a watch (e.g. HeartCast on an iPhone) send a reading every few seconds,
+/// not every second. The link must stay up and "Connected" must not flicker once the pace is
+/// learned, instead of reconnecting after every quiet stretch longer than the stale timeout.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn slow_sender_stays_connected() {
+    let l = Listener::new().await;
+    let mut cfg = base_config(vec![target("t", l.port, Preset::KittyTooth)]);
+    cfg.device.stale_timeout_secs = 2;
+    let mut steps = Vec::new();
+    for bpm in [70, 71, 72, 73, 74, 75, 76] {
+        steps.push(MockStep::hr(bpm));
+        steps.push(MockStep::wait_ms(1_800));
+    }
+    // After the first few readings the gaps are learned; later 3 s gaps must not go stale.
+    for bpm in [77, 78, 79] {
+        steps.push(MockStep::wait_ms(1_200));
+        steps.push(MockStep::hr(bpm));
+    }
+    let backend = Arc::new(MockBackend::new(vec![MockDevice::scripted(
+        "test:1",
+        "Slow Phone",
+        steps,
+    )]));
+    let h = engine::start(
+        cfg,
+        None,
+        backend.clone(),
+        EngineOptions {
+            mdns: false,
+            ..Default::default()
+        },
+    );
+    assert!(
+        l.wait_for(Duration::from_secs(25), |l| l.last(&format!("{KT}HR"))
+            == Some(OscType::Int(79)))
+            .await,
+        "all readings arrive"
+    );
+    assert_eq!(backend.connect_calls(), 1, "no reconnects for a slow sender");
+    h.shutdown().await;
 }

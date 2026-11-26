@@ -227,6 +227,10 @@ pub struct EngineOptions {
     /// Network sources may send only when the value changes, so their link is declared dead
     /// after `max(stale timeout, this)` of silence rather than the plain stale timeout.
     pub network_link_floor: Duration,
+    /// Bluetooth links are only declared dead after `max(learned stale timeout, this)` of
+    /// silence. Windows reports real disconnects; silence alone usually means a slow sender
+    /// (phone apps relaying a watch send every 5-25 s), and reconnecting loses readings.
+    pub ble_link_floor: Duration,
     /// Folder for saved sessions; `None` records nothing.
     pub history_dir: Option<PathBuf>,
 }
@@ -236,6 +240,7 @@ impl Default for EngineOptions {
         Self {
             mdns: true,
             network_link_floor: Duration::from_secs(20),
+            ble_link_floor: Duration::from_secs(30),
             history_dir: None,
         }
     }
@@ -452,7 +457,14 @@ struct Slot {
     /// watches in broadcast mode, many optical bands) never send RR, so HRV is unavailable.
     packets: u32,
     rr_packets: u32,
+    /// Recent gaps between valid readings, to learn how often this source sends.
+    gaps: VecDeque<Duration>,
 }
+
+/// Gaps longer than this are dropouts, not the source's pace.
+const MAX_LEARNED_GAP: Duration = Duration::from_secs(60);
+/// How many recent gaps the learned pace looks at.
+const GAP_WINDOW: usize = 12;
 
 /// After this many packets without a single RR interval, HRV is reported as unavailable.
 const NO_RR_AFTER_PACKETS: u32 = 15;
@@ -461,6 +473,26 @@ impl Slot {
     /// The connected device has shown it sends no RR intervals.
     fn lacks_rr(&self) -> bool {
         self.packets >= NO_RR_AFTER_PACKETS && self.rr_packets == 0
+    }
+
+    /// Records a valid reading and the gap since the previous one.
+    fn mark_valid(&mut self, now: Instant) {
+        if let Some(prev) = self.last_valid {
+            let gap = now.saturating_duration_since(prev);
+            if gap <= MAX_LEARNED_GAP {
+                if self.gaps.len() >= GAP_WINDOW {
+                    self.gaps.pop_front();
+                }
+                self.gaps.push_back(gap);
+            }
+        }
+        self.last_valid = Some(now);
+    }
+
+    /// Stale timeout adapted to this source's pace: never below `base`, and for sources that
+    /// send slowly (every 10-20 s), long enough to cover their usual gaps (capped at 60 s).
+    fn learned_stale(&self, base: Duration) -> Duration {
+        learned_stale(&self.gaps, base)
     }
 
     fn fresh(&self, now: Instant, within: Duration) -> bool {
@@ -701,7 +733,12 @@ impl Engine {
 
     fn data_valid(&self, now: Instant) -> bool {
         self.last_valid_at
-            .is_some_and(|t| now.saturating_duration_since(t) <= self.stale_timeout())
+            .is_some_and(|t| now.saturating_duration_since(t) <= self.live_stale())
+    }
+
+    /// Stale timeout for the live source, adapted to how often it sends.
+    fn live_stale(&self) -> Duration {
+        self.slots[self.live].learned_stale(self.stale_timeout())
     }
 
     fn stale_timeout(&self) -> Duration {
@@ -770,7 +807,7 @@ impl Engine {
 
         for i in [PRIMARY, BACKUP] {
             // Stale detection: no packets at all → link is dead; reconnect.
-            let link_timeout = self.link_timeout(self.slots[i].kind);
+            let link_timeout = self.link_timeout(i);
             let slot = &self.slots[i];
             if let (Some(_), Some(t), Some(limit)) = (&slot.session, slot.last_packet, link_timeout) {
                 if now.saturating_duration_since(t) > limit {
@@ -784,7 +821,7 @@ impl Engine {
             }
             // A standby source with a link but no recent reading.
             if i != self.live {
-                let stale = self.stale_timeout();
+                let stale = self.slots[i].learned_stale(self.stale_timeout());
                 let slot = &mut self.slots[i];
                 if slot.session.is_some() && slot.state == ConnState::Connected && !slot.fresh(now, stale) {
                     slot.state = ConnState::NoData;
@@ -1069,14 +1106,16 @@ impl Engine {
     }
 
     /// Link timeout for a source kind: `None` for sources without a link (UDP input).
-    fn link_timeout(&self, kind: Option<SourceKind>) -> Option<Duration> {
-        let kind = kind?;
+    fn link_timeout(&self, i: usize) -> Option<Duration> {
+        let kind = self.slots[i].kind?;
         if !kind.reconnects_on_silence() {
             return None;
         }
-        let stale = self.stale_timeout();
+        let stale = self.slots[i].learned_stale(self.stale_timeout());
         Some(if kind.is_network() {
             stale.max(self.opts.network_link_floor)
+        } else if matches!(kind, SourceKind::Ble | SourceKind::Demo) {
+            stale.max(self.opts.ble_link_floor)
         } else {
             stale
         })
@@ -1201,6 +1240,7 @@ impl Engine {
                 slot.battery = None;
                 slot.packets = 0;
                 slot.rr_packets = 0;
+                slot.gaps.clear();
                 slot.state = ConnState::NoData;
                 *self.rx_mut(i) = Some(rx);
                 if i == self.live {
@@ -1384,7 +1424,7 @@ impl Engine {
             // Standby source: only track whether it is delivering.
             let ok = (MIN_VALID_BPM..=MAX_VALID_BPM).contains(&s.bpm) && s.has_contact();
             if ok {
-                slot.last_valid = Some(now);
+                slot.mark_valid(now);
                 slot.valid_since.get_or_insert(now);
                 slot.state = ConnState::Connected;
             } else {
@@ -1451,7 +1491,7 @@ impl Engine {
         if let SampleOutcome::Accepted { raw, smoothed } = outcome {
             self.last_valid_at = Some(now);
             let slot = &mut self.slots[i];
-            slot.last_valid = Some(now);
+            slot.mark_valid(now);
             slot.valid_since.get_or_insert(now);
             if slot.session.is_some() {
                 slot.state = ConnState::Connected;
@@ -2163,6 +2203,16 @@ fn nonblocking_udp(addr: SocketAddr) -> Option<UdpSocket> {
 }
 
 /// Test sweep: 60 → 180 → 60 bpm over [`SWEEP_LEN`].
+/// Stale timeout learned from recent gaps between readings: `base` for fast senders, else 1.5x
+/// the longest recent gap, capped at [`MAX_LEARNED_GAP`]. Needs 3 gaps before it adapts.
+pub fn learned_stale(gaps: &VecDeque<Duration>, base: Duration) -> Duration {
+    if gaps.len() < 3 {
+        return base;
+    }
+    let longest = gaps.iter().copied().max().unwrap_or_default();
+    base.max(longest.mul_f64(1.5)).min(MAX_LEARNED_GAP)
+}
+
 pub fn sweep_bpm(elapsed: Duration) -> f32 {
     let x = (elapsed.as_secs_f32() / SWEEP_LEN.as_secs_f32()).clamp(0.0, 1.0);
     let tri = 1.0 - (2.0 * x - 1.0).abs();
@@ -2178,6 +2228,22 @@ mod tests {
         let s: Vec<u64> = (1..=7).map(|n| backoff(n).as_secs()).collect();
         assert_eq!(s, vec![1, 2, 4, 8, 10, 10, 10]);
         assert_eq!(backoff(1000).as_secs(), 10);
+    }
+
+    #[test]
+    fn learned_stale_adapts_to_slow_senders() {
+        let base = Duration::from_secs(5);
+        let gaps = |v: &[u64]| v.iter().map(|&s| Duration::from_secs(s)).collect::<VecDeque<_>>();
+        // Too few samples, or a fast strap: the configured timeout.
+        assert_eq!(learned_stale(&gaps(&[20, 20]), base), base);
+        assert_eq!(learned_stale(&gaps(&[1, 1, 1, 1]), base), base);
+        // A phone app relaying a watch every 5-15 s.
+        assert_eq!(
+            learned_stale(&gaps(&[5, 15, 8]), base),
+            Duration::from_millis(22_500)
+        );
+        // Never more than a minute.
+        assert_eq!(learned_stale(&gaps(&[50, 55, 58]), base), Duration::from_secs(60));
     }
 
     #[test]
