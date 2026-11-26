@@ -50,6 +50,11 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
   them off, and reminders while it lasts. Shows a desktop notification, a chime (rising = high,
   falling = low), a banner and a glowing mini window, and can post the warning to your VRChat
   chatbox so friends nearby see it. A *Test alert* button tries it out. Not a medical device.
+* **Session history** (History page): every session is saved on your computer while heart rate
+  data comes in, about one reading per second plus beat intervals and any alerts. Look back at the
+  full graph with alert markers, time in each zone and HRV over time, export a session as CSV
+  (for example to show a doctor) or delete it. Keep sessions for 30 days, 90 days, a year or
+  forever, with a space limit. **Nothing is uploaded**: sessions never leave your PC.
 * **Streaming**: always-on-top mini window and a transparent OBS browser source.
 * **Tray app**: the tray icon shows your live BPM; KittyTooth keeps sending while minimized.
 * Dark/light theme, accent color, springy animations (Settings → Appearance → Motion: on, reduced
@@ -231,6 +236,15 @@ Only you, unless you turn on *Show in VRChat chatbox*: then the alert text appea
 avatar for everyone nearby. Alerts are a reminder, not a medical device. If the desktop
 notification doesn't appear with the portable exe, install KittyTooth once with the setup exe
 (Windows only shows notifications from apps it knows), or rely on the sound and chatbox.
+
+**Is my heart rate history private?**
+Yes. Sessions are stored only on your PC, in `%LOCALAPPDATA%\app.kittytooth.desktop\sessions\`
+(one small text file per session), and KittyTooth never uploads them anywhere. A session starts
+when valid readings start and ends after about three quiet minutes, on *Reset session*, or when
+you quit; sessions under 30 seconds aren't kept. Turn off *Save sessions* on the History page to
+stop recording, and delete any session there. *Export CSV* writes a copy only where you choose,
+with the columns `timestamp` (UTC), `elapsed_s`, `bpm`, `raw`, `rr_ms`, `zone` and `alert`.
+KittyTooth is not a medical device, so treat the numbers as a helpful record, not a diagnosis.
 
 **Where are my settings and logs?**
 `%APPDATA%\app.kittytooth.desktop\config.json` and `%LOCALAPPDATA%\app.kittytooth.desktop\logs\`.

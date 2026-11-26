@@ -60,6 +60,10 @@ pub fn run() {
             commands::reset_session,
             commands::get_history,
             commands::get_osc_log,
+            commands::list_sessions,
+            commands::get_session,
+            commands::delete_session,
+            commands::export_session,
             commands::export_config,
             commands::import_config,
             commands::reset_config,
@@ -95,6 +99,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let data_dir = app.path().app_config_dir()?;
     let log_dir = app.path().app_log_dir().unwrap_or_else(|_| data_dir.join("logs"));
+    // Saved sessions stay on this computer (local, not roaming, app data).
+    let history_dir = app
+        .path()
+        .app_local_data_dir()
+        .unwrap_or_else(|_| data_dir.clone())
+        .join("sessions");
     let store = ConfigStore::new(&data_dir);
     let report = store.load();
     let logging = logging::Logging::init(&log_dir, report.config.debug.log_latency);
@@ -131,7 +141,10 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
             config.clone(),
             Some(store.clone()),
             factory,
-            EngineOptions::default(),
+            EngineOptions {
+                history_dir: Some(history_dir),
+                ..Default::default()
+            },
         )
     });
 
@@ -225,6 +238,9 @@ fn spawn_bridges(app: &tauri::AppHandle, engine: &EngineHandle) {
                 }
                 Ok(EngineEvent::Sample(p)) => {
                     let _ = a.emit("sample", &p);
+                }
+                Ok(EngineEvent::SessionsChanged) => {
+                    let _ = a.emit("sessions", ());
                 }
                 Ok(EngineEvent::ConfigChanged) => {
                     let _ = a.emit("config", &e.config());

@@ -5,6 +5,8 @@
 
 import type { Backend, Unlisten } from "./backend";
 import { defaultConfig, emptySnapshot } from "../defaults";
+import { csvFileName, sessionCsv } from "../sessions";
+import { mockSessions } from "./mock-sessions";
 import type {
   BackendEvents,
   Config,
@@ -18,6 +20,7 @@ import type {
   Capabilities,
   SecretKind,
   SecretStatus,
+  Session,
   SourceKind,
   UpdateInfo,
   UserError,
@@ -127,6 +130,19 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   let sampleTimer: ReturnType<typeof setTimeout> | null = null;
   let beatTimer: ReturnType<typeof setTimeout> | null = null;
   let disposed = false;
+  let sessions: Session[] | null = null;
+  const savedSessions = () => (sessions ??= mockSessions());
+  const findSession = (id: string): Session => {
+    const s = savedSessions().find((x) => x.summary.id === id);
+    if (!s)
+      throw {
+        code: "invalid_input",
+        title: "Session not found",
+        message: "That session no longer exists.",
+        fix: "Pick another session from the list.",
+      } satisfies UserError;
+    return s;
+  };
 
   const info: AppInfo = {
     version: "1.0.0",
@@ -135,6 +151,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     overlay_error: null,
     log_dir: "%APPDATA%\\app.kittytooth.desktop\\logs",
     config_path: "%APPDATA%\\app.kittytooth.desktop\\config.json",
+    history_dir: "%LOCALAPPDATA%\\app.kittytooth.desktop\\sessions",
     notice: null,
     secrets: [],
     hyperate_builtin_key: true,
@@ -598,6 +615,31 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     async getOscLog() {
       return structuredClone(log);
+    },
+    async listSessions() {
+      return structuredClone(savedSessions().map((s) => s.summary));
+    },
+    async getSession(id) {
+      return structuredClone(findSession(id));
+    },
+    async deleteSession(id) {
+      findSession(id);
+      sessions = savedSessions().filter((s) => s.summary.id !== id);
+      emit("sessions", null);
+      return structuredClone(sessions.map((s) => s.summary));
+    },
+    async exportSession(id) {
+      const s = findSession(id);
+      const name = csvFileName(s.summary.start_ms);
+      if (typeof document !== "undefined" && typeof URL.createObjectURL === "function") {
+        const blob = new Blob([sessionCsv(s)], { type: "text/csv" });
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      return name;
     },
     async exportConfig() {
       if (typeof document !== "undefined" && typeof URL.createObjectURL === "function") {

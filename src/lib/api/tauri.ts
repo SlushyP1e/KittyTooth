@@ -12,6 +12,8 @@ import type {
   OscLogEntry,
   SecretStatus,
   UpdateInfo,
+  Session,
+  SessionSummary,
 } from "../types";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -41,6 +43,10 @@ export function createTauriBackend(): Backend {
     resetSession: () => call("reset_session"),
     getHistory: (sinceMs) => call<HistoryPoint[]>("get_history", { sinceMs }),
     getOscLog: () => call<OscLogEntry[]>("get_osc_log"),
+    listSessions: () => call<SessionSummary[]>("list_sessions"),
+    getSession: (id) => call<Session>("get_session", { id }),
+    deleteSession: (id) => call<SessionSummary[]>("delete_session", { id }),
+    exportSession: (id) => call<string | null>("export_session", { id }),
     exportConfig: () => call<string | null>("export_config"),
     importConfig: () => call<ConfigResult | null>("import_config"),
     resetConfig: () => call<ConfigResult>("reset_config"),

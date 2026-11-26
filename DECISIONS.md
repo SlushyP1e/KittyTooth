@@ -240,6 +240,20 @@ linked from <https://developers.hyperate.io/>, whose live demo uses the same pro
   full strength and slightly thicker; the others are at 40 %. This deliberately overrides the
   redesign's single-accent rule for this one data encoding. The graph stays pink-only.
 
+### Saved session history
+* One append-only text file per session (`<start ms>.kts` in the local app data folder) plus a
+  JSON summary written when the session ends, instead of SQLite. No C toolchain or new
+  dependency, a crash loses at most the line being written, files without a summary are finished
+  on the next start, and a session is easy to inspect or delete by hand. About 70 KB per hour.
+* Recording rules live in a pure `history::Recorder` (start on the first valid reading, about one
+  sample per second, end after 3 quiet minutes, Reset session, quit or turning recording off,
+  drop sessions under 30 s) so they are unit tested with plain timestamps. Disk writes run on a
+  dedicated thread fed by a channel, so the OSC hot path never waits on the disk.
+* Zone settings are copied into each session's header so its zone times don't change when the
+  settings do. Min/avg/max use the raw BPM; the graph shows the displayed (smoothed) BPM.
+* Test alerts and test sweeps are never recorded. Everything stays on the PC; export is only
+  through the save dialog.
+
 ### Also fixed
 * OSC output now uses plain non-blocking `std::net::UdpSocket` sends. Tokio's `try_send_to`
   can return `WouldBlock` on a freshly bound socket before readiness is first observed, which
