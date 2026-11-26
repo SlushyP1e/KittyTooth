@@ -34,8 +34,8 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
 * **Any standard BLE heart rate sensor** (Heart Rate Service 0x180D): Polar, Garmin, Coospo,
   Wahoo, Amazfit/Xiaomi and Galaxy Watch broadcast modes. Battery and body location when
   available. See [docs/DEVICES.md](docs/DEVICES.md).
-* **Five heart rate sources**: Bluetooth LE (default), **Pulsoid**, **HypeRate**, **OSC input**
-  (relay from another app) and a demo strap. One is active at a time; switching is instant.
+* **Six heart rate sources**: Bluetooth LE (default), **ANT+** (USB stick), **Pulsoid**,
+  **HypeRate**, **OSC input** (relay from another app) and a demo strap. One is active at a time; switching is instant.
   Optional **fallback**: if the main source goes quiet, a backup takes over and hands back
   when the main one recovers.
 * **Set and forget**: remembers your sensor, connects on launch, reconnects forever with
@@ -99,12 +99,13 @@ No sensor yet? Click **Try the demo strap** on the Live screen.
 ## Heart rate sources
 
 Pick one on the **Source** page. The Live screen shows which one is feeding readings
-(`ble`, `pulsoid`, `hyperate`, `osc`, `demo`), and readings a source can't provide (HRV,
+(`ble`, `ant`, `pulsoid`, `hyperate`, `osc`, `demo`), and readings a source can't provide (HRV,
 battery, skin contact) show as *not available from this source* rather than 0.
 
 | Source | What you need | Provides |
 |---|---|---|
 | Bluetooth | A strap or watch in broadcast mode, picked on **Devices** | HR, RR/HRV, battery, contact |
+| ANT+ | A USB ANT+ stick (Garmin USB2 / USB-m or a clone) and a strap or watch broadcasting ANT+ HR. On Windows the stick needs the WinUSB driver (see below) | HR, RR/HRV, battery (most straps) |
 | Pulsoid | A Pulsoid access token: press **Get token** (opens pulsoid.net/ui/keys, BRO plan or trial), paste it | HR, monitor battery |
 | HypeRate | Your HypeRate device ID (shown in the HypeRate app) | HR |
 | OSC input | Another app sending an int or float to KittyTooth's port (default `9010`, address `/avatar/parameters/HR`) | HR |
@@ -114,6 +115,14 @@ Tokens and keys are stored in the **Windows Credential Manager** (service `Kitty
 in `config.json`. They are masked in the UI, never logged, and left out of *Copy diagnostics*.
 Network sources reconnect with the same back-off as Bluetooth; a rejected token, key or device
 ID stops retrying (with a plain-language message) until you change it.
+
+**ANT+**: KittyTooth pairs with the first ANT+ heart rate monitor it hears. ANT+ sends the time
+of every beat, so KittyTooth works out RR intervals and HRV even for Garmin watches (e.g. Fenix,
+Forerunner with *Broadcast Heart Rate*), which send no RR over Bluetooth. Only one program can use
+the stick at a time: close Garmin Express, Zwift and similar apps first. On Windows the stick must
+use the **WinUSB** driver: run [Zadig](https://zadig.akeo.ie), choose *Options → List All Devices*,
+pick the ANT USB stick, select *WinUSB* and press *Replace Driver*. See
+[docs/DEVICES.md](docs/DEVICES.md#ant).
 
 **Fallback**: turn on *Fall back to a backup source*, pick the backup and how many seconds the
 main source may be quiet. The backup stays connected so it can take over instantly; KittyTooth

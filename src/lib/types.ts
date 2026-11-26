@@ -12,7 +12,7 @@ export type AdapterState = "ready" | "off" | "missing" | "unknown";
 export type SensorContact = "not_supported" | "not_detected" | "detected";
 export type BodySensorLocation = "other" | "chest" | "wrist" | "finger" | "hand" | "ear_lobe" | "foot" | "unknown";
 
-export type SourceKind = "ble" | "pulsoid" | "hyperate" | "osc" | "demo";
+export type SourceKind = "ble" | "ant" | "pulsoid" | "hyperate" | "osc" | "demo";
 export type SecretKind = "pulsoid_token" | "hyperate_key";
 
 /** What a source can report; missing items are "not available from this source". */
