@@ -6,6 +6,7 @@
   import { formatBpm } from "./lib/format";
   import Logo from "./lib/components/Logo.svelte";
   import Toasts from "./lib/components/Toasts.svelte";
+  import AlertBanner from "./lib/components/AlertBanner.svelte";
   import LiveView from "./lib/views/LiveView.svelte";
   import DevicesView from "./lib/views/DevicesView.svelte";
   import SourceView from "./lib/views/SourceView.svelte";
@@ -240,6 +241,9 @@
           {#if !app.ready}
             <p class="muted loading">Loading</p>
           {:else}
+            {#if s.alert}
+              <AlertBanner alert={s.alert} onsettings={view === "settings" ? undefined : () => navigate("settings")} />
+            {/if}
             {#key view}
               <div class="view" use:stagger={{ dir }}>
               {#if view === "live"}

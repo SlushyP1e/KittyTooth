@@ -201,6 +201,11 @@ pub async fn test_sweep(state: State<'_, AppState>, on: bool) -> CmdResult<()> {
 }
 
 #[tauri::command]
+pub async fn test_alert(state: State<'_, AppState>) -> CmdResult<()> {
+    state.engine.test_alert().await.map_err(err)
+}
+
+#[tauri::command]
 pub async fn reset_session(state: State<'_, AppState>) -> CmdResult<()> {
     state.engine.reset_session().await.map_err(err)
 }

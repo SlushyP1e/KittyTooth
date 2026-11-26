@@ -9,7 +9,7 @@
 
 <!-- Compact window: drag anywhere, double-click to open the main window. -->
 <div class="mini" role="presentation" data-tauri-drag-region ondblclick={() => app.run((a) => a.showMain())}>
-  <div class="pill" data-tauri-drag-region>
+  <div class="pill" class:alert-high={s.alert?.kind === "high"} class:alert-low={s.alert?.kind === "low"} data-tauri-drag-region>
     <Heart beat={app.beatCount} active={live} size={40} label="Heartbeat" />
     <span class="num tabular" data-tauri-drag-region data-testid="mini-bpm">{live ? formatBpm(s.bpm) : "--"}</span>
     <span class="unit mono" data-tauri-drag-region>bpm</span>
@@ -37,6 +37,21 @@
     padding: 10px 18px 10px 14px;
     border-radius: var(--r-panel);
     background: color-mix(in srgb, var(--slate-0) 80%, transparent);
+  }
+  .pill.alert-high,
+  .pill.alert-low {
+    --tone: var(--red);
+    background: color-mix(in srgb, var(--tone) 22%, var(--slate-0));
+    box-shadow: inset 0 0 0 1.5px var(--tone);
+    animation: mini-alert 1.4s ease-in-out infinite;
+  }
+  .pill.alert-low {
+    --tone: var(--amber);
+  }
+  @keyframes mini-alert {
+    50% {
+      box-shadow: inset 0 0 0 1.5px var(--tone), 0 0 14px color-mix(in srgb, var(--tone) 55%, transparent);
+    }
   }
   .num {
     font-family: var(--display);

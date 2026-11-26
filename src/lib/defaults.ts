@@ -1,4 +1,19 @@
-import type { Config, OscTarget, Snapshot } from "./types";
+import type { AlertConfig, Config, OscTarget, Snapshot } from "./types";
+
+export function defaultAlerts(): AlertConfig {
+  return {
+    enabled: false,
+    high_bpm: 150,
+    low_bpm: 45,
+    sustain_secs: 10,
+    repeat_secs: 120,
+    notify: true,
+    sound: true,
+    chatbox: false,
+    high_text: "\u26a0\ufe0f High heart rate: {hr} bpm",
+    low_text: "\u26a0\ufe0f Low heart rate: {hr} bpm",
+  };
+}
 
 // Mirrors the Rust defaults in crates/kittytooth-core/src/config.rs.
 export function defaultTarget(id = "vrchat", name = "VRChat"): OscTarget {
@@ -34,6 +49,7 @@ export function defaultConfig(): Config {
     },
     processing: { smoothing: "off" },
     zones: { age: null, manual_max_hr: 190, thresholds: [50, 60, 70, 80, 90] },
+    alerts: defaultAlerts(),
     osc: {
       targets: [defaultTarget()],
       keepalive_ms: 1000,
@@ -92,6 +108,7 @@ export function emptySnapshot(): Snapshot {
     sources: [],
     rejected_out_of_range: 0,
     packets: 0,
+    alert: null,
   };
 }
 

@@ -129,6 +129,39 @@ export interface Snapshot {
   fallback_active: boolean;
   capabilities: Capabilities;
   sources: SlotStatus[];
+  /** High or low heart rate alert showing right now. */
+  alert: AlertStatus | null;
+}
+
+export type AlertKind = "high" | "low";
+
+export interface AlertStatus {
+  kind: AlertKind;
+  bpm: number;
+  threshold: number;
+  since_ms: number;
+  test: boolean;
+}
+
+export interface AlertConfig {
+  enabled: boolean;
+  high_bpm: number;
+  low_bpm: number;
+  sustain_secs: number;
+  repeat_secs: number;
+  notify: boolean;
+  sound: boolean;
+  chatbox: boolean;
+  high_text: string;
+  low_text: string;
+}
+
+export interface AlertEvent {
+  kind: AlertKind;
+  bpm: number;
+  threshold: number;
+  repeat: boolean;
+  test: boolean;
 }
 
 export interface DiscoveredDevice {
@@ -226,6 +259,7 @@ export interface Config {
   };
   processing: { smoothing: Smoothing };
   zones: { age: number | null; manual_max_hr: number; thresholds: [number, number, number, number, number] };
+  alerts: AlertConfig;
   osc: {
     targets: OscTarget[];
     keepalive_ms: number;
@@ -283,4 +317,5 @@ export interface BackendEvents {
   sample: HistoryPoint;
   devices: DiscoveredDevice[];
   config: Config;
+  alert: AlertEvent;
 }

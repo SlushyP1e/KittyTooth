@@ -10,7 +10,19 @@
   const c = $derived(app.config);
   const s = $derived(app.snapshot);
   const maxHr = $derived(c.zones.age ? 220 - c.zones.age : c.zones.manual_max_hr);
+  const a = $derived(c.alerts);
   let confirmReset = $state(false);
+
+  function setAlertNum(key: "high_bpm" | "low_bpm" | "sustain_secs", raw: string, min: number, max: number) {
+    const v = Math.round(Number(raw));
+    if (!Number.isFinite(v)) return;
+    app.updateConfig((cfg) => (cfg.alerts[key] = Math.min(max, Math.max(min, v))));
+  }
+
+  async function testAlert() {
+    if (app.saving === "pending") await app.flushConfig();
+    await app.run((api) => api.testAlert());
+  }
   let copied = $state(false);
 
   function setThreshold(i: number, v: number) {
@@ -179,6 +191,147 @@
               </span>
             </label>
           {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-label">Alerts</h2>
+    <div class="hairlist">
+      <Toggle
+        label="Heart rate alerts"
+        hint="Warns you when your heart rate stays too high or too low. Not a medical device: use it as a reminder, not for diagnosis."
+        checked={a.enabled}
+        onchange={(v) => app.updateConfig((cfg) => (cfg.alerts.enabled = v))}
+      />
+      <div class="srow">
+        <div class="stext">
+          <label class="slabel" for="al-high">High alert</label>
+          <p class="shelp">Alert at or above this heart rate.</p>
+        </div>
+        <div class="sctrl row">
+          <input
+            id="al-high"
+            type="number"
+            min="40"
+            max="250"
+            disabled={!a.enabled}
+            value={a.high_bpm}
+            onchange={(e) => setAlertNum("high_bpm", e.currentTarget.value, 40, 250)}
+          /><span class="mono muted small">bpm</span>
+        </div>
+      </div>
+      <div class="srow">
+        <div class="stext">
+          <label class="slabel" for="al-low">Low alert</label>
+          <p class="shelp">Alert at or below this heart rate.</p>
+        </div>
+        <div class="sctrl row">
+          <input
+            id="al-low"
+            type="number"
+            min="25"
+            max="200"
+            disabled={!a.enabled}
+            value={a.low_bpm}
+            onchange={(e) => setAlertNum("low_bpm", e.currentTarget.value, 25, 200)}
+          /><span class="mono muted small">bpm</span>
+        </div>
+      </div>
+      <div class="srow">
+        <div class="stext">
+          <label class="slabel" for="al-sustain">Wait before alerting</label>
+          <p class="shelp">Seconds it must stay out of range first, so a single spike doesn't set it off. 0 alerts right away.</p>
+        </div>
+        <div class="sctrl row">
+          <input
+            id="al-sustain"
+            type="number"
+            min="0"
+            max="300"
+            disabled={!a.enabled}
+            value={a.sustain_secs}
+            onchange={(e) => setAlertNum("sustain_secs", e.currentTarget.value, 0, 300)}
+          /><span class="mono muted small">s</span>
+        </div>
+      </div>
+      <div class="srow">
+        <div class="stext">
+          <span class="slabel">Remind me</span>
+          <p class="shelp">Repeats the alert while your heart rate stays out of range.</p>
+        </div>
+        <div class="sctrl">
+          <Choice
+            label="Remind me"
+            value={String(a.repeat_secs)}
+            options={[
+              { value: "0", label: "once" },
+              { value: "60", label: "1 min" },
+              { value: "120", label: "2 min" },
+              { value: "300", label: "5 min" },
+            ]}
+            onchange={(v: string) => app.updateConfig((cfg) => (cfg.alerts.repeat_secs = Number(v)))}
+          />
+        </div>
+      </div>
+      <Toggle
+        label="Desktop notification"
+        checked={a.notify}
+        disabled={!a.enabled}
+        onchange={(v) => app.updateConfig((cfg) => (cfg.alerts.notify = v))}
+      />
+      <Toggle
+        label="Sound"
+        hint="A rising chime for high, a falling one for low."
+        checked={a.sound}
+        disabled={!a.enabled}
+        onchange={(v) => app.updateConfig((cfg) => (cfg.alerts.sound = v))}
+      />
+      <Toggle
+        label="Show in VRChat chatbox"
+        hint="Posts the alert above your head so friends nearby can see it, with the chatbox sound. Works even when the regular chatbox is off."
+        checked={a.chatbox}
+        disabled={!a.enabled}
+        onchange={(v) => app.updateConfig((cfg) => (cfg.alerts.chatbox = v))}
+      />
+      {#if a.chatbox}
+        <div class="srow stacked">
+          <div class="stext">
+            <span class="slabel">Chatbox messages</span>
+            <p class="shelp">Same tokens as the chatbox template, like {"{hr}"}. Up to 144 characters.</p>
+          </div>
+          <div class="texts">
+            <label class="field">
+              <span class="flabel">high</span>
+              <input
+                type="text"
+                maxlength="144"
+                disabled={!a.enabled}
+                value={a.high_text}
+                onchange={(e) => app.updateConfig((cfg) => (cfg.alerts.high_text = e.currentTarget.value))}
+              />
+            </label>
+            <label class="field">
+              <span class="flabel">low</span>
+              <input
+                type="text"
+                maxlength="144"
+                disabled={!a.enabled}
+                value={a.low_text}
+                onchange={(e) => app.updateConfig((cfg) => (cfg.alerts.low_text = e.currentTarget.value))}
+              />
+            </label>
+          </div>
+        </div>
+      {/if}
+      <div class="srow">
+        <div class="stext">
+          <span class="slabel">Try it</span>
+          <p class="shelp">Fires a sample high alert with your current choices. No heart rate needed.</p>
+        </div>
+        <div class="sctrl">
+          <button class="btn" disabled={!a.enabled} onclick={testAlert}>Test alert</button>
         </div>
       </div>
     </div>
@@ -405,6 +558,14 @@
   }
   .small {
     font-size: 12px;
+  }
+  .texts {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--s3);
+  }
+  .texts input {
+    width: 100%;
   }
   .swatches {
     gap: 10px;
