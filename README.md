@@ -46,6 +46,10 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
 * **OSC presets**: KittyTooth, HRtoVRChat compatible, VRCOSC compatible, or fully custom.
   Multiple targets, OSCQuery discovery of VRChat, keepalive, strict 20 msg/s cap per target.
 * **VRChat chatbox** with a template (`{hr} bpm {heart}`), 2 s minimum interval, silent mode.
+* **Heart rate alerts** (Settings → Alerts): high and low limits, a wait so one spike doesn't set
+  them off, and reminders while it lasts. Shows a desktop notification, a chime (rising = high,
+  falling = low), a banner and a glowing mini window, and can post the warning to your VRChat
+  chatbox so friends nearby see it. A *Test alert* button tries it out. Not a medical device.
 * **Streaming**: always-on-top mini window and a transparent OBS browser source.
 * **Tray app**: the tray icon shows your live BPM; KittyTooth keeps sending while minimized.
 * Dark/light theme, accent color, springy animations (Settings → Appearance → Motion: on, reduced
@@ -210,6 +214,18 @@ app* for private networks, and make sure both devices are on the same network.
 **Does it work with Quest standalone?**
 Yes, if the Quest runs VRChat with OSC enabled: add a target with the Quest's IP address and
 port 9000.
+
+**HRV says "this sensor doesn't send beat intervals".**
+HRV is worked out from the time between beats (RR intervals). Garmin watches (Fenix, Forerunner,
+Venu...) and many optical bands don't send those over Bluetooth, only the BPM. Use the watch's
+ANT+ broadcast with a USB ANT+ stick instead (ANT+ includes beat timing), or a chest strap such as
+a Polar H10.
+
+**Who sees heart rate alerts?**
+Only you, unless you turn on *Show in VRChat chatbox*: then the alert text appears above your
+avatar for everyone nearby. Alerts are a reminder, not a medical device. If the desktop
+notification doesn't appear with the portable exe, install KittyTooth once with the setup exe
+(Windows only shows notifications from apps it knows), or rely on the sound and chatbox.
 
 **Where are my settings and logs?**
 `%APPDATA%\app.kittytooth.desktop\config.json` and `%LOCALAPPDATA%\app.kittytooth.desktop\logs\`.
