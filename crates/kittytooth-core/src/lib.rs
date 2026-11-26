@@ -8,6 +8,7 @@ pub mod beat;
 pub mod config;
 pub mod engine;
 pub mod error;
+pub mod history;
 pub mod hrm;
 pub mod http;
 pub mod osc;

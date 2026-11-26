@@ -6,6 +6,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -17,6 +18,7 @@ use crate::alerts::{AlertAction, AlertKind, AlertMonitor, AlertStatus};
 use crate::beat::{BeatScheduler, BeatSource};
 use crate::config::{Config, ConfigStore, DisconnectBehavior, RememberedDevice};
 use crate::error::{KtError, KtResult, UserError};
+use crate::history::{self, RecordOp, Recorder, SessionMeta, SessionStore, WriterMsg};
 use crate::hrm::SensorContact;
 use crate::osc::chatbox;
 use crate::osc::oscquery::{self, OscQueryEvent, OscQueryHandle, VrchatEndpoint};
@@ -188,6 +190,8 @@ pub enum EngineEvent {
         repeat: bool,
         test: bool,
     },
+    /// A saved session began, ended or was removed by retention.
+    SessionsChanged,
 }
 
 #[derive(Debug)]
@@ -223,6 +227,8 @@ pub struct EngineOptions {
     /// Network sources may send only when the value changes, so their link is declared dead
     /// after `max(stale timeout, this)` of silence rather than the plain stale timeout.
     pub network_link_floor: Duration,
+    /// Folder for saved sessions; `None` records nothing.
+    pub history_dir: Option<PathBuf>,
 }
 
 impl Default for EngineOptions {
@@ -230,6 +236,7 @@ impl Default for EngineOptions {
         Self {
             mdns: true,
             network_link_floor: Duration::from_secs(20),
+            history_dir: None,
         }
     }
 }
@@ -243,6 +250,7 @@ pub struct EngineHandle {
     config: watch::Receiver<Config>,
     events: broadcast::Sender<EngineEvent>,
     shared: Arc<Shared>,
+    sessions: Option<SessionStore>,
 }
 
 impl EngineHandle {
@@ -343,6 +351,11 @@ impl EngineHandle {
             .unwrap_or_default()
     }
 
+    /// Saved sessions, when history is set up (`EngineOptions::history_dir`).
+    pub fn sessions(&self) -> Option<&SessionStore> {
+        self.sessions.as_ref()
+    }
+
     /// History points newer than `since_ms` (0 = everything).
     pub fn history(&self, since_ms: u64) -> Vec<HistoryPoint> {
         self.shared
@@ -379,6 +392,15 @@ pub fn start_with_factory(
     let (cfg_tx, cfg_rx) = watch::channel(config.clone());
     let (ev_tx, _) = broadcast::channel(256);
     let shared = Arc::new(Shared::default());
+    let sessions = opts.history_dir.as_ref().map(SessionStore::new);
+    let history_tx = sessions.as_ref().map(|store| {
+        let ev = ev_tx.clone();
+        let tx = history::spawn_writer(store.clone(), move || {
+            let _ = ev.send(EngineEvent::SessionsChanged);
+        });
+        let _ = tx.send(WriterMsg::Prune(config.history.clone(), epoch_ms()));
+        tx
+    });
     let handle = EngineHandle {
         cmd: cmd_tx,
         snapshot: snap_rx,
@@ -386,11 +408,13 @@ pub fn start_with_factory(
         config: cfg_rx,
         events: ev_tx.clone(),
         shared: shared.clone(),
+        sessions,
     };
     backend.set_demo_enabled(config.device.demo_device);
-    let engine = Engine::new(
+    let mut engine = Engine::new(
         config, store, factory, backend, opts, snap_tx, dev_tx, cfg_tx, ev_tx, shared,
     );
+    engine.history_tx = history_tx;
     tokio::spawn(engine.run(cmd_rx));
     handle
 }
@@ -468,6 +492,10 @@ struct Engine {
     /// The user wants sources running (auto-connect, or Connect/Select pressed).
     running: bool,
     slots: [Slot; 2],
+
+    // saved session history
+    recorder: Recorder,
+    history_tx: Option<std::sync::mpsc::Sender<WriterMsg>>,
     /// Event receivers of the slots' sessions (separate fields so `select!` can poll both).
     primary_rx: Option<mpsc::Receiver<SensorEvent>>,
     backup_rx: Option<mpsc::Receiver<SensorEvent>>,
@@ -596,6 +624,8 @@ impl Engine {
             oscq_rx,
             sweep: None,
             alerts: AlertMonitor::default(),
+            recorder: Recorder::default(),
+            history_tx: None,
             test_alert_until: None,
             latency_sum_us: 0,
         }
@@ -726,6 +756,8 @@ impl Engine {
     }
 
     fn on_tick(&mut self, now: Instant) {
+        let ops = self.recorder.tick(epoch_ms());
+        self.record(ops);
         // Test sweep progression.
         if let Some(s) = &self.sweep {
             if now.saturating_duration_since(s.started) >= SWEEP_LEN {
@@ -915,6 +947,8 @@ impl Engine {
             }
             Command::TestAlert => self.test_alert(Instant::now()),
             Command::ResetSession => {
+                let ops = self.recorder.end();
+                self.record(ops);
                 self.processor.reset_session();
                 self.recent.clear();
                 if let Ok(mut h) = self.shared.history.lock() {
@@ -994,6 +1028,15 @@ impl Engine {
                 changed(self.config.source.fallback.backup),
             );
             self.reconcile(p, b).await;
+        }
+        if old.history != self.config.history {
+            if !self.config.history.enabled {
+                let ops = self.recorder.end();
+                self.record(ops);
+            }
+            if let Some(tx) = &self.history_tx {
+                let _ = tx.send(WriterMsg::Prune(self.config.history.clone(), epoch_ms()));
+            }
         }
         self.snap.max_hr = self.config.zones.max_hr();
         self.dirty = true;
@@ -1357,6 +1400,40 @@ impl Engine {
         self.on_measurement(i, s, now);
     }
 
+    // ---------- saved history ----------
+
+    fn record(&mut self, ops: Vec<RecordOp>) {
+        if let Some(tx) = &self.history_tx {
+            for op in ops {
+                let _ = tx.send(WriterMsg::Op(op));
+            }
+        }
+    }
+
+    fn record_sample(&mut self, i: usize, t_ms: u64, bpm: f64, raw: u16, rr: &[f64]) {
+        if self.history_tx.is_none() || !self.config.history.enabled {
+            return;
+        }
+        let slot = &self.slots[i];
+        let source = slot.kind.unwrap_or(self.config.source.active);
+        let device = slot
+            .device
+            .as_ref()
+            .map(|d| d.name.clone())
+            .or_else(|| slot.source.as_ref().map(|s| s.label()))
+            .filter(|l| !l.trim().is_empty());
+        let zones = self.config.zones.clone();
+        let ops = self.recorder.sample(t_ms, bpm, raw, rr, |start_ms| SessionMeta {
+            v: 1,
+            id: start_ms.to_string(),
+            start_ms,
+            source,
+            device,
+            zones,
+        });
+        self.record(ops);
+    }
+
     fn on_measurement(&mut self, i: usize, s: HrSample, now: Instant) {
         self.snap.packets += 1;
         self.snap.last_packet_ms = Some(epoch_ms());
@@ -1407,6 +1484,8 @@ impl Engine {
                 h.push_back(point);
             }
             let _ = self.ev_tx.send(EngineEvent::Sample(point));
+            let rr: &[f64] = if s.has_contact() { &s.rr_ms } else { &[] };
+            self.record_sample(i, point.t_ms, smoothed, raw, rr);
         }
         self.snap.rejected_spikes = self.processor.rejected_spikes();
         self.snap.rejected_out_of_range = self.processor.rejected_out_of_range();
@@ -1797,6 +1876,10 @@ impl Engine {
         test: bool,
         now: Instant,
     ) {
+        if !test {
+            let ops = self.recorder.alert(epoch_ms(), kind, bpm, threshold);
+            self.record(ops);
+        }
         let _ = self.ev_tx.send(EngineEvent::Alert {
             alert_kind: kind,
             bpm,
@@ -2044,6 +2127,14 @@ impl Engine {
     }
 
     async fn shutdown(&mut self) {
+        let ops = self.recorder.end();
+        self.record(ops);
+        if let Some(tx) = &self.history_tx {
+            let (done_tx, done_rx) = oneshot::channel();
+            if tx.send(WriterMsg::Sync(done_tx)).is_ok() {
+                let _ = tokio::time::timeout(Duration::from_secs(1), done_rx).await;
+            }
+        }
         self.running = false;
         self.stop_slot(PRIMARY).await;
         self.stop_slot(BACKUP).await;

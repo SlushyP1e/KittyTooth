@@ -12,6 +12,7 @@ use serde_json::{json, Value};
 
 use crate::alerts::AlertConfig;
 use crate::error::{KtError, KtResult};
+use crate::history::HistoryConfig;
 use crate::processing::{Smoothing, ZoneConfig};
 use crate::source::SourceKind;
 
@@ -27,6 +28,8 @@ pub struct Config {
     pub processing: ProcessingConfig,
     pub zones: ZoneConfig,
     pub alerts: AlertConfig,
+    /// Saved session history (local only).
+    pub history: HistoryConfig,
     pub osc: OscConfig,
     pub ui: UiConfig,
     pub overlay: OverlayConfig,
@@ -42,6 +45,7 @@ impl Default for Config {
             processing: ProcessingConfig::default(),
             zones: ZoneConfig::default(),
             alerts: AlertConfig::default(),
+            history: HistoryConfig::default(),
             osc: OscConfig::default(),
             ui: UiConfig::default(),
             overlay: OverlayConfig::default(),
@@ -398,6 +402,7 @@ impl Config {
         self.device.stale_timeout_secs = self.device.stale_timeout_secs.clamp(2, 60);
         self.zones.sanitize();
         self.alerts.sanitize();
+        self.history.sanitize();
         self.osc.max_rate = self.osc.max_rate.clamp(1, MAX_RATE_CAP);
         if self.osc.keepalive_ms != 0 {
             self.osc.keepalive_ms = self.osc.keepalive_ms.clamp(200, 10_000);

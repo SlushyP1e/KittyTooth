@@ -134,6 +134,7 @@ async fn ant_stick_feeds_heart_rate_and_hrv() {
         EngineOptions {
             mdns: false,
             network_link_floor: Duration::ZERO,
+            ..Default::default()
         },
     );
 

@@ -17,6 +17,7 @@ const VIEWS = [
   ["devices", "/#/devices", 1800],
   ["osc", "/#/osc", 1800],
   ["settings", "/#/settings", 600],
+  ["history", "/#/history", 900],
 ] as const;
 
 for (const theme of ["dark", "light"] as const) {
@@ -33,6 +34,14 @@ for (const theme of ["dark", "light"] as const) {
     });
   }
 }
+
+test("screenshot session detail", async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await page.goto("/#/history");
+  await page.getByRole("button", { name: /HRM-Pro/ }).click();
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: `${OUT}/history-session.png` });
+});
 
 test("screenshot osc log", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 820 });

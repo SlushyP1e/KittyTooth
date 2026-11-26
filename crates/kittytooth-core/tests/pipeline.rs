@@ -771,3 +771,50 @@ async fn overlay_serves_html_and_state() {
     assert_eq!(err.code(), "port_in_use");
     h.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn readings_are_recorded_to_session_history() {
+    let dir = std::env::temp_dir().join(format!("kittytooth-pipeline-history-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let backend = Arc::new(MockBackend::new(vec![MockDevice::scripted(
+        "test:1",
+        "Test Strap",
+        steady(60, 72, 833.0, 100),
+    )]));
+    let h = engine::start(
+        base_config(vec![]),
+        None,
+        backend,
+        EngineOptions {
+            mdns: false,
+            history_dir: Some(dir.clone()),
+            ..Default::default()
+        },
+    );
+    let store = h.sessions().expect("history is set up").clone();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while store.list().first().is_none_or(|s| s.samples < 2) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let live = store.list();
+    assert_eq!(live.len(), 1);
+    assert!(live[0].active);
+    assert_eq!(live[0].device.as_deref(), Some("Test Strap"));
+    assert_eq!(live[0].max_bpm, 72);
+    let session = store.load(&live[0].id).unwrap();
+    assert!(session.samples.iter().any(|s| s.rr_ms.contains(&833)));
+    // Reset session ends it; a few seconds is too short to keep.
+    h.reset_session().await.unwrap();
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while store.active_id().is_some() && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    // The next reading starts a new session unless recording is off.
+    let mut cfg = h.config();
+    cfg.history.enabled = false;
+    h.set_config(cfg).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(store.list().is_empty(), "{:?}", store.list());
+    h.shutdown().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

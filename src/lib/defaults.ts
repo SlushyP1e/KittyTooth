@@ -50,6 +50,7 @@ export function defaultConfig(): Config {
     processing: { smoothing: "off" },
     zones: { age: null, manual_max_hr: 190, thresholds: [50, 60, 70, 80, 90] },
     alerts: defaultAlerts(),
+    history: { enabled: true, retention: "days90", max_mb: 200 },
     osc: {
       targets: [defaultTarget()],
       keepalive_ms: 1000,
