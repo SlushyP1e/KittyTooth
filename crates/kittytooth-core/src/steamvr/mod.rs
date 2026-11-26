@@ -6,6 +6,7 @@
 //! installed or running it just reports that and checks again every few seconds. It never
 //! launches SteamVR.
 
+pub mod fade;
 mod ffi;
 pub mod render;
 
@@ -36,7 +37,14 @@ const MIN_REDRAW: Duration = Duration::from_millis(250);
 /// Controller indices can change when a controller reconnects; look them up this often.
 const REATTACH_EVERY: Duration = Duration::from_secs(1);
 
-const OVERLAY_KEY: &str = "kittytooth.heartrate";
+/// Main loop tick while the wrist fade is running (smooth fades, ~40 Hz).
+const FADE_TICK: Duration = Duration::from_millis(25);
+/// A full fade in or out takes this long.
+const FADE_SECS: f32 = 0.2;
+/// How long the old image stays under a freshly uploaded one (a few compositor frames).
+const SWAP_OVERLAP: Duration = Duration::from_millis(60);
+
+const OVERLAY_KEYS: [&str; 2] = ["kittytooth.heartrate.a", "kittytooth.heartrate.b"];
 const OVERLAY_NAME: &str = "KittyTooth heart rate";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Default)]
@@ -283,7 +291,8 @@ impl Worker {
             if self.take_alerts() > 0 && cfg.haptics {
                 c.heartbeat(&cfg.haptics_hand, &self.stop);
             }
-            if !self.nap(TICK) {
+            let fading = cfg.overlay && cfg.fade && cfg.attach != "hud";
+            if !self.nap(if fading { FADE_TICK } else { TICK }) {
                 break;
             }
         }
@@ -348,13 +357,25 @@ pub const HEARTBEAT: [(u64, u64, u16); 2] = [(0, 90, 3999), (210, 280, 2600)];
 
 struct Connected {
     session: Session,
-    overlay: Option<OverlayHandle>,
-    /// Shown, and on which device.
+    /// Two overlays at the same spot: a new image goes to the hidden one, which is then shown on
+    /// top before the old one is hidden, so an update never blanks the card.
+    overlays: Option<[OverlayHandle; 2]>,
+    /// Index of the overlay holding the latest image.
+    front: usize,
+    /// The previous front, still shown underneath until this time.
+    retire: Option<(usize, Instant)>,
+    /// Attached to this device and shown.
     shown_on: Option<TrackedDeviceIndex>,
-    applied: Option<(String, String, u32)>,
+    applied: Option<(String, String)>,
+    last_pixels: Option<Vec<u8>>,
     last_view: Option<View>,
     last_draw: Option<Instant>,
     last_attach: Option<Instant>,
+    last_tick: Option<Instant>,
+    /// Gaze fade, 0..1 (eased).
+    fade: f32,
+    /// Alpha last sent to SteamVR.
+    sent_alpha: f32,
     /// Creating or drawing the overlay failed; not retried until it is toggled or reconnected.
     failed: bool,
     /// Shown in the status while `failed`.
@@ -365,25 +386,45 @@ impl Connected {
     fn new(session: Session) -> Self {
         Self {
             session,
-            overlay: None,
+            overlays: None,
+            front: 0,
+            retire: None,
             shown_on: None,
             applied: None,
+            last_pixels: None,
             last_view: None,
             last_draw: None,
             last_attach: None,
+            last_tick: None,
+            fade: 0.0,
+            sent_alpha: -1.0,
             failed: false,
             error: None,
         }
     }
 
-    fn sync_overlay(&mut self, cfg: &SteamVrConfig, view: View) -> Result<(), String> {
-        if !cfg.overlay {
-            if let Some(h) = self.overlay.take() {
+    fn destroy_overlays(&mut self) {
+        if let Some(hs) = self.overlays.take() {
+            for h in hs {
                 self.session.destroy_overlay(h);
             }
-            self.shown_on = None;
-            self.applied = None;
-            self.last_view = None;
+        }
+        self.front = 0;
+        self.retire = None;
+        self.shown_on = None;
+        self.applied = None;
+        self.last_pixels = None;
+        self.last_view = None;
+        self.fade = 0.0;
+        self.sent_alpha = -1.0;
+    }
+
+    fn sync_overlay(&mut self, cfg: &SteamVrConfig, view: View) -> Result<(), String> {
+        let now = Instant::now();
+        let dt = self.last_tick.map_or(0.0, |t| (now - t).as_secs_f32().min(0.1));
+        self.last_tick = Some(now);
+        if !cfg.overlay {
+            self.destroy_overlays();
             self.failed = false;
             self.error = None;
             return Ok(());
@@ -391,30 +432,38 @@ impl Connected {
         if self.failed {
             return Ok(()); // reported once; retried after a reconnect or toggling it
         }
-        let h = match self.overlay {
-            Some(h) => h,
-            None => match self.session.create_overlay(OVERLAY_KEY, OVERLAY_NAME) {
-                Ok(h) => {
-                    self.session.set_sort_order(h, 10);
-                    self.overlay = Some(h);
-                    h
+        let hs = match self.overlays {
+            Some(hs) => hs,
+            None => {
+                let mut hs = [0; 2];
+                for (i, key) in OVERLAY_KEYS.iter().enumerate() {
+                    match self.session.create_overlay(key, OVERLAY_NAME) {
+                        Ok(h) => hs[i] = h,
+                        Err(e) => {
+                            for &h in &hs[..i] {
+                                self.session.destroy_overlay(h);
+                            }
+                            self.failed = true;
+                            return Err(e);
+                        }
+                    }
                 }
-                Err(e) => {
-                    self.failed = true;
-                    return Err(e);
-                }
-            },
+                self.session.set_sort_order(hs[0], 11);
+                self.session.set_sort_order(hs[1], 10);
+                self.overlays = Some(hs);
+                hs
+            }
         };
 
-        let want = (cfg.attach.clone(), cfg.size.clone(), cfg.opacity);
+        let want = (cfg.attach.clone(), cfg.size.clone());
         let changed = self.applied.as_ref() != Some(&want);
         if changed {
-            self.session.set_width(h, overlay_width(&cfg.attach, &cfg.size));
-            self.session.set_alpha(h, cfg.opacity as f32 / 100.0);
+            for h in hs {
+                self.session.set_width(h, overlay_width(&cfg.attach, &cfg.size));
+            }
             self.applied = Some(want);
         }
 
-        let now = Instant::now();
         if changed || self.last_attach.is_none_or(|t| now - t >= REATTACH_EVERY) {
             self.last_attach = Some(now);
             let device = match cfg.attach.as_str() {
@@ -425,10 +474,12 @@ impl Connected {
             match device {
                 Some(d) => {
                     if changed || self.shown_on != Some(d) {
-                        self.session
-                            .set_transform_relative(h, d, &attach_transform(&cfg.attach));
-                        if self.shown_on.is_none() {
-                            self.session.show(h);
+                        let m = attach_transform(&cfg.attach);
+                        for h in hs {
+                            self.session.set_transform_relative(h, d, &m);
+                        }
+                        if self.shown_on.is_none() && self.last_pixels.is_some() {
+                            self.session.show(hs[self.front]);
                         }
                         self.shown_on = Some(d);
                     }
@@ -436,23 +487,99 @@ impl Connected {
                 None => {
                     // That controller is off; hide until it comes back.
                     if self.shown_on.take().is_some() {
-                        self.session.hide(h);
+                        for h in hs {
+                            self.session.hide(h);
+                        }
+                        self.retire = None;
                     }
                 }
             }
         }
 
+        // The old image has been covered long enough for the new one to be on screen.
+        if let Some((old, at)) = self.retire {
+            if now >= at {
+                self.session.hide(hs[old]);
+                self.retire = None;
+            }
+        }
+
         let due = self.last_draw.is_none_or(|t| now - t >= MIN_REDRAW);
         if self.last_view != Some(view) && due {
-            let mut px = render::render(&view);
-            if let Err(e) = self.session.set_raw(h, &mut px, render::WIDTH, render::HEIGHT) {
-                self.failed = true;
-                return Err(e);
-            }
             self.last_view = Some(view);
-            self.last_draw = Some(now);
+            let mut px = render::render(&view);
+            // Only upload when the image really changed.
+            if self.last_pixels.as_deref() != Some(&px[..]) {
+                self.upload(hs, &mut px, now)?;
+                self.last_pixels = Some(px);
+                self.last_draw = Some(now);
+            }
         }
+
+        self.apply_fade(cfg, view, hs, dt);
         Ok(())
+    }
+
+    /// Double-buffered upload: draw into the hidden overlay, show it above the current one, and
+    /// hide the current one a moment later.
+    fn upload(&mut self, hs: [OverlayHandle; 2], px: &mut [u8], now: Instant) -> Result<(), String> {
+        let first = self.last_pixels.is_none();
+        let target = if first { self.front } else { 1 - self.front };
+        if let Some((old, _)) = self.retire.take() {
+            if old != target {
+                self.session.hide(hs[old]);
+            }
+        }
+        if let Err(e) = self
+            .session
+            .set_raw(hs[target], px, render::WIDTH, render::HEIGHT)
+        {
+            self.failed = true;
+            return Err(e);
+        }
+        if first {
+            if self.shown_on.is_some() {
+                self.session.show(hs[target]);
+            }
+            return Ok(());
+        }
+        let old = self.front;
+        self.session.set_sort_order(hs[target], 11);
+        self.session.set_sort_order(hs[old], 10);
+        if self.shown_on.is_some() {
+            self.session.show(hs[target]);
+            self.retire = Some((old, now + SWAP_OVERLAP));
+        }
+        self.front = target;
+        Ok(())
+    }
+
+    /// Eases the gaze fade and sends the alpha (user opacity x fade) when it changed.
+    fn apply_fade(&mut self, cfg: &SteamVrConfig, view: View, hs: [OverlayHandle; 2], dt: f32) {
+        let target = match self.shown_on {
+            // Alerts always show; the HUD is always in view.
+            Some(d) if cfg.fade && cfg.attach != "hud" && view.alert.is_none() => {
+                let poses = self.session.poses(d + 1);
+                let (hmd, dev) = (&poses[ffi::TRACKED_DEVICE_HMD as usize], &poses[d as usize]);
+                if hmd.pose_is_valid && dev.pose_is_valid {
+                    let overlay = fade::mul(&dev.device_to_absolute, &attach_transform(&cfg.attach));
+                    let gaze = fade::gaze_angle(&hmd.device_to_absolute, &overlay);
+                    let facing = fade::facing_angle(&hmd.device_to_absolute, &overlay);
+                    fade::fade_target(gaze, facing, fade::fade_angles(&cfg.fade_angle))
+                } else {
+                    self.fade // tracking lost for a moment: hold
+                }
+            }
+            _ => 1.0,
+        };
+        self.fade = fade::ease_toward(self.fade, target, dt, FADE_SECS);
+        let alpha = cfg.opacity as f32 / 100.0 * self.fade;
+        if (alpha - self.sent_alpha).abs() > 0.004 || (alpha == 0.0) != (self.sent_alpha == 0.0) {
+            for h in hs {
+                self.session.set_alpha(h, alpha);
+            }
+            self.sent_alpha = alpha;
+        }
     }
 
     /// Plays [`HEARTBEAT`] on the chosen controller(s). Blocks this thread for ~0.3 s.
@@ -487,9 +614,7 @@ impl Connected {
 
 impl Drop for Connected {
     fn drop(&mut self) {
-        if let Some(h) = self.overlay.take() {
-            self.session.destroy_overlay(h);
-        }
+        self.destroy_overlays();
     }
 }
 

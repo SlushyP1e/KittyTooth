@@ -67,7 +67,9 @@ type Pad = *const c_void;
 /// `VR_IVRSystem_FnTable` (IVRSystem_026), entries 0..=50.
 #[repr(C)]
 struct SystemFn {
-    _p0: [Pad; 18],
+    _p0: [Pad; 12],
+    get_device_to_absolute_tracking_pose: unsafe extern "C" fn(i32, f32, *mut TrackedDevicePose, u32), // 12
+    _p0b: [Pad; 5],
     get_tracked_device_index_for_controller_role: unsafe extern "C" fn(i32) -> TrackedDeviceIndex, // 18
     _p1: [Pad; 11],
     poll_next_event: unsafe extern "C" fn(*mut VrEvent, u32) -> bool, // 30
@@ -119,6 +121,23 @@ pub struct VrEvent {
 const _: () = assert!(std::mem::size_of::<VrEvent>() == 64);
 #[cfg(not(windows))]
 const _: () = assert!(std::mem::size_of::<VrEvent>() == 60);
+
+/// `TrackedDevicePose_t` (natural alignment, 80 bytes).
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TrackedDevicePose {
+    pub device_to_absolute: Matrix34,
+    pub velocity: [f32; 3],
+    pub angular_velocity: [f32; 3],
+    pub tracking_result: i32,
+    pub pose_is_valid: bool,
+    pub device_is_connected: bool,
+}
+
+const _: () = assert!(std::mem::size_of::<TrackedDevicePose>() == 80);
+
+/// `TrackingUniverseStanding`.
+pub const UNIVERSE_STANDING: i32 = 1;
 
 /// Why connecting failed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -402,6 +421,19 @@ impl Session {
             }
         }
         false
+    }
+
+    /// Current poses of devices `0..count` (standing universe). Invalid poses have
+    /// `pose_is_valid == false`.
+    pub fn poses(&self, count: u32) -> Vec<TrackedDevicePose> {
+        let count = count.clamp(1, 64);
+        // SAFETY: plain-old-data; SteamVR fills `count` entries.
+        let mut out = vec![unsafe { std::mem::zeroed::<TrackedDevicePose>() }; count as usize];
+        // SAFETY: valid table and a buffer of `count` poses.
+        unsafe {
+            (self.sys().get_device_to_absolute_tracking_pose)(UNIVERSE_STANDING, 0.0, out.as_mut_ptr(), count)
+        };
+        out
     }
 
     /// Device index of the left (`ROLE_LEFT_HAND`) or right controller, if one is connected.

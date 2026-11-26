@@ -409,6 +409,10 @@ pub struct SteamVrConfig {
     pub size: String,
     /// Overlay opacity in percent (20..=100).
     pub opacity: u32,
+    /// Fade a wrist overlay out unless you look at it (alerts always show).
+    pub fade: bool,
+    /// How close to the centre of view it must be: "narrow", "normal" or "wide".
+    pub fade_angle: String,
     /// Buzz the controllers when a heart rate alert fires or reminds.
     pub haptics: bool,
     /// Which controller buzzes: "left", "right" or "both".
@@ -423,6 +427,8 @@ impl Default for SteamVrConfig {
             attach: "left_wrist".into(),
             size: "medium".into(),
             opacity: 90,
+            fade: true,
+            fade_angle: "normal".into(),
             haptics: true,
             haptics_hand: "both".into(),
         }
@@ -437,6 +443,9 @@ impl SteamVrConfig {
         }
         if !matches!(self.size.as_str(), "small" | "medium" | "large") {
             self.size = d.size;
+        }
+        if !matches!(self.fade_angle.as_str(), "narrow" | "normal" | "wide") {
+            self.fade_angle = d.fade_angle;
         }
         if !matches!(self.haptics_hand.as_str(), "left" | "right" | "both") {
             self.haptics_hand = d.haptics_hand;
@@ -926,7 +935,7 @@ mod tests {
         assert!(!c.steamvr.enabled, "SteamVR is opt-in");
         assert_eq!(c.steamvr.attach, "left_wrist");
         let (c, _) = ConfigStore::parse(
-            r#"{"schema_version":3,"steamvr":{"enabled":true,"attach":"forehead","size":"huge","opacity":3,"haptics_hand":"feet"}}"#,
+            r#"{"schema_version":3,"steamvr":{"enabled":true,"attach":"forehead","size":"huge","opacity":3,"haptics_hand":"feet","fade_angle":"sideways"}}"#,
         )
         .unwrap();
         assert!(c.steamvr.enabled);
@@ -934,6 +943,8 @@ mod tests {
         assert_eq!(c.steamvr.size, "medium");
         assert_eq!(c.steamvr.opacity, 20);
         assert_eq!(c.steamvr.haptics_hand, "both");
+        assert_eq!(c.steamvr.fade_angle, "normal");
+        assert!(c.steamvr.fade, "fade defaults on");
         assert!(
             c.steamvr.overlay && c.steamvr.haptics,
             "missing fields default on"
