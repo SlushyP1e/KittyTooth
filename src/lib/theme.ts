@@ -1,4 +1,4 @@
-import type { Theme } from "./types";
+import type { Motion, Theme } from "./types";
 
 /** Named accent presets; their colors live in tokens.css (`[data-accent=...]`). */
 export const ACCENT_PRESETS = ["pink", "peach", "lilac", "sky"] as const;
@@ -53,8 +53,24 @@ export function readableOn(hex: string): "black" | "white" {
   return (lum + 0.05) / 0.05 >= 1.05 / (lum + 0.05) ? "black" : "white";
 }
 
-export function prefersReducedMotion(): boolean {
+function osReducesMotion(): boolean {
   return typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+}
+
+/**
+ * Applies the in-app motion setting. "on" animates even when Windows has animation effects off
+ * (many people turn those off for snappier windows, not for accessibility); "system" follows the OS.
+ */
+export function applyMotion(motion: Motion, root: HTMLElement = document.documentElement): void {
+  const reduced = motion === "reduced" || (motion === "system" && osReducesMotion());
+  root.dataset.motion = reduced ? "reduced" : "full";
+}
+
+/** True when the UI should not animate (in-app setting, or the OS before the setting is applied). */
+export function prefersReducedMotion(): boolean {
+  if (typeof document === "undefined") return false;
+  const m = document.documentElement.dataset.motion;
+  return m ? m === "reduced" : osReducesMotion();
 }
 
 /** Reads a CSS custom property from the document root (e.g. for canvas drawing). */

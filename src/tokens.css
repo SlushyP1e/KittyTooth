@@ -63,10 +63,15 @@
 /* ---------- Dark (default) ---------- */
 :root,
 :root[data-theme="dark"] {
-  --slate-0: #0e1014; /* page and sidebar */
-  --slate-1: #161920; /* main panel */
-  --slate-2: #1e222b; /* raised row / hover */
-  --slate-3: #2a2f3a; /* hairlines and borders */
+  --slate-0: #090b0c; /* page and sidebar (SlushyTheme WindowBg) */
+  --slate-1: #0c0f10; /* main panel */
+  --card: #0e1112; /* card groups */
+  --slate-2: #15191b; /* raised row */
+  --slate-3: #262b2e; /* control borders, off switches */
+  --line: rgba(255, 255, 255, 0.06); /* hairlines and card edges */
+  --line-2: rgba(255, 255, 255, 0.1);
+  --hover: rgba(255, 255, 255, 0.035);
+  --dim: #858995; /* section labels, tertiary text */
   --text: #e8e8ed; /* headings, key values */
   --body: #cacbd3; /* body text */
   --muted: #9699a5; /* secondary text, labels */
@@ -93,6 +98,11 @@
   --slate-1: #fbfbfa;
   --slate-2: #ededea;
   --slate-3: #dcdcd7;
+  --card: #ffffff;
+  --line: rgba(0, 0, 0, 0.07);
+  --line-2: rgba(0, 0, 0, 0.11);
+  --hover: rgba(0, 0, 0, 0.035);
+  --dim: #7c7f88;
   --text: #15171c;
   --body: #3a3d45;
   --muted: #686b75;
@@ -171,5 +181,12 @@
   --s6: 28px;
 
   --on-pink: var(--slate-0);
-  --spring: cubic-bezier(0.3, 1.4, 0.5, 1);
+  --spring: cubic-bezier(0.34, 1.56, 0.64, 1); /* small overshoot, settles ~0.3 s */
+  --settle: cubic-bezier(0.22, 1, 0.36, 1); /* no overshoot */
+  --pink-line: color-mix(in srgb, var(--pink) 24%, transparent);
+  /* Bright core for the logo comet: reads on top of the accent outline. */
+  --spark: color-mix(in srgb, var(--pink), white 62%);
+}
+:root[data-theme="light"] {
+  --spark: color-mix(in srgb, var(--pink), black 30%);
 }

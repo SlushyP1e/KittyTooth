@@ -182,10 +182,12 @@ test("mini window shows BPM", async ({ page }) => {
 test("respects reduced motion", async ({ browser }) => {
   const ctx = await browser.newContext({ reducedMotion: "reduce" });
   const page = await ctx.newPage();
-  await page.goto("http://localhost:1420/#/live");
+  await page.goto("http://localhost:1420/#/settings");
+  await page.getByRole("radiogroup", { name: "Motion" }).getByRole("radio", { name: "reduced" }).click();
+  await page.evaluate(() => (location.hash = "#/live"));
   await expect(page.getByTestId("bpm")).toHaveText(/^\d{2,3}$/);
   const dur = await page.evaluate(() => {
-    const el = document.querySelector(".page") ?? document.body;
+    const el = document.querySelector(".brand .head") ?? document.body;
     return getComputedStyle(el).animationDuration;
   });
   expect(["0.001ms", "1e-06s", "0s"]).toContain(dur);

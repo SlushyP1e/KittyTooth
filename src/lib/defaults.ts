@@ -50,6 +50,7 @@ export function defaultConfig(): Config {
       autostart: false,
       mini_always_on_top: true,
       graph_range: "60s",
+      motion: "on",
     },
     overlay: { enabled: true, port: 9123 },
     debug: { log_latency: false },

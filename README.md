@@ -48,7 +48,8 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
 * **VRChat chatbox** with a template (`{hr} bpm {heart}`), 2 s minimum interval, silent mode.
 * **Streaming**: always-on-top mini window and a transparent OBS browser source.
 * **Tray app**: the tray icon shows your live BPM; KittyTooth keeps sending while minimized.
-* Dark/light theme, accent color, keyboard accessible, respects reduced motion.
+* Dark/light theme, accent color, springy animations (Settings → Appearance → Motion: on, reduced
+  or follow Windows), keyboard accessible.
 
 ## Install
 
@@ -62,6 +63,28 @@ Download from the [latest release](../../releases/latest):
 | `SHA256SUMS.txt` | Checksums for all files. |
 
 Requirements: Windows 10/11 with Bluetooth 4.0+ (built-in or a USB dongle).
+
+## Resource usage
+
+KittyTooth is two parts, and you can see both in Task Manager:
+
+| Process | What it does | RAM | CPU |
+|---|---|---|---|
+| **KittyTooth** | Bluetooth, heart rate processing, OSC, OBS overlay server | ~9 MB | ~0% |
+| **WebView2: KittyTooth** (under *WebView2 Manager*) | The window you see | ~95 MB | ~1% |
+| **WebView2 Manager** (whole group, including the line above) | Microsoft's shared browser engine that draws the window | ~175 MB | ~1-8% while the window is open |
+
+Measured on Windows 11 with v1.1.0, window open on the Live screen with a heart rate coming in.
+CPU in the WebView2 group depends on what's on screen: the live graph and animations cost a few
+percent while visible.
+
+* **The part that matters for VRChat is tiny.** Everything time-critical (sensor → OSC) runs in
+  the ~9 MB KittyTooth process, independent of the window.
+* **Close the window to the tray** (the default when you press X) and the page stops drawing, so
+  its CPU drops to near zero. WebView2 keeps its memory so the window reopens instantly.
+* **Want lower CPU with the window open?** *Settings → Appearance → Motion → reduced* turns the
+  animations off. The ~170 MB of WebView2 is the cost of having a window at all; it is freed only
+  when you quit from the tray (which also stops sending to VRChat).
 
 ## Quick start
 

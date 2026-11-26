@@ -179,6 +179,7 @@ export type Metric =
   | "session_avg"
   | "session_max";
 export type DisconnectBehavior = "hold_last" | "send_zero";
+export type Motion = "on" | "reduced" | "system";
 export type Theme = "dark" | "light" | "system";
 export type GraphRange = "60s" | "5m" | "session";
 
@@ -241,6 +242,7 @@ export interface Config {
     autostart: boolean;
     mini_always_on_top: boolean;
     graph_range: GraphRange;
+    motion: Motion;
   };
   overlay: { enabled: boolean; port: number };
   debug: { log_latency: boolean };

@@ -43,10 +43,10 @@ describe("design tokens", () => {
   it("tokens.css defines every core token", () => {
     const css = readFileSync(join(ROOT, "tokens.css"), "utf8");
     for (const t of [
-      "--slate-0: #0e1014",
-      "--slate-1: #161920",
-      "--slate-2: #1e222b",
-      "--slate-3: #2a2f3a",
+      "--slate-0: #090b0c",
+      "--slate-1: #0c0f10",
+      "--slate-2: #15191b",
+      "--slate-3: #262b2e",
       "--text: #e8e8ed",
       "--body: #cacbd3",
       "--muted: #9699a5",
