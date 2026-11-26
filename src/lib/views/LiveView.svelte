@@ -6,7 +6,7 @@
   import ZoneBand from "../components/ZoneBand.svelte";
   import Choice from "../components/Choice.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
-  import { connectionStatus, formatBpm, formatMs, locationLabel, missingFeatures, SOURCE_INFO } from "../format";
+  import { connectionStatus, formatBpm, formatMs, missingFeatures, SOURCE_INFO } from "../format";
   import type { GraphRange } from "../types";
 
   let { navigate }: { navigate: (v: string) => void } = $props();
@@ -28,7 +28,6 @@
           ? `Waiting for ${s.target.name}`
           : "No sensor connected",
   );
-  const location = $derived(locationLabel(s.device?.location ?? null));
   const missing = $derived(missingFeatures(s.capabilities));
 
   $effect(() => {
@@ -93,7 +92,6 @@
         <StatusChip {status} />
         {#if s.device?.demo && (s.live_source ?? s.source) !== "demo"}<span class="tag neutral">demo</span>{/if}
         {#if s.battery != null}<span class="tag {s.battery <= 15 ? 'err' : 'neutral'}">{s.battery}% battery</span>{/if}
-        {#if location && s.device}<span class="tag neutral">{location.toLowerCase()}</span>{/if}
         {#if s.device && s.contact === "detected"}<span class="tag neutral">contact ok</span>{/if}
         {#if s.device && s.contact === "not_detected"}<span class="tag warn">no skin contact</span>{/if}
       </div>
