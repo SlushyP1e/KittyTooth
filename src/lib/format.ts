@@ -7,6 +7,7 @@ import type {
   SensorContact,
   Snapshot,
   SourceKind,
+  SteamVrStatus,
 } from "./types";
 
 export const SOURCE_ORDER: SourceKind[] = ["ble", "ant", "pulsoid", "hyperate", "osc", "demo"];
@@ -101,6 +102,32 @@ export function connectionStatus(s: Pick<Snapshot, "state" | "data_valid" | "con
     reconnecting: { label: s.error ? "Retrying" : "Reconnecting", tone: s.error ? "error" : "busy" },
   };
   return map[s.state];
+}
+
+/** SteamVR connection status: chip label and tone, plus a line of help. */
+export function steamVrStatus(s: SteamVrStatus): StatusView & { help: string } {
+  switch (s.state) {
+    case "off":
+      return { label: "Off", tone: "off", help: "Turn it on to see your heart rate in your headset." };
+    case "not_installed":
+      return {
+        label: "SteamVR not found",
+        tone: "off",
+        help: "SteamVR isn't installed on this PC. Install it from Steam to use the headset overlay.",
+      };
+    case "not_running":
+      return { label: "SteamVR not running", tone: "off", help: "Connects by itself when SteamVR starts." };
+    case "connected":
+      return s.message
+        ? { label: "Connected", tone: "warn", help: s.message }
+        : { label: "Connected", tone: "ok", help: s.version ? `SteamVR ${s.version}` : "Connected to SteamVR." };
+    case "error":
+      return {
+        label: "Can't connect",
+        tone: "error",
+        help: `${s.message ?? "SteamVR didn't accept the connection."} KittyTooth keeps trying.`,
+      };
+  }
 }
 
 export function contactLabel(c: SensorContact): string | null {

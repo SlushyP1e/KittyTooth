@@ -274,6 +274,31 @@ export interface Session {
   hrv: HrvPoint[];
 }
 
+export type VrAttach = "left_wrist" | "right_wrist" | "hud";
+export type VrSize = "small" | "medium" | "large";
+export type VrHand = "left" | "right" | "both";
+
+export interface SteamVrConfig {
+  enabled: boolean;
+  /** Show the heart rate overlay in the headset. */
+  overlay: boolean;
+  attach: VrAttach;
+  size: VrSize;
+  /** Percent, 20..100. */
+  opacity: number;
+  /** Buzz the controllers when an alert fires or reminds. */
+  haptics: boolean;
+  haptics_hand: VrHand;
+}
+
+export type SteamVrState = "off" | "not_installed" | "not_running" | "connected" | "error";
+
+export interface SteamVrStatus {
+  state: SteamVrState;
+  version: string | null;
+  message: string | null;
+}
+
 export interface CustomMapping {
   address: string;
   metric: Metric;
@@ -338,6 +363,7 @@ export interface Config {
     motion: Motion;
   };
   overlay: { enabled: boolean; port: number };
+  steamvr: SteamVrConfig;
   debug: { log_latency: boolean };
   updates: UpdateConfig;
 }
@@ -386,6 +412,7 @@ export interface InitialState {
   config: Config;
   devices: DiscoveredDevice[];
   info: AppInfo;
+  steamvr: SteamVrStatus;
 }
 
 export interface ConfigResult {
@@ -408,4 +435,5 @@ export interface BackendEvents {
   update_progress: UpdateProgress;
   /** A saved session began, ended or was removed. */
   sessions: null;
+  steamvr: SteamVrStatus;
 }

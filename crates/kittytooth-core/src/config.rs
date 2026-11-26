@@ -33,6 +33,7 @@ pub struct Config {
     pub osc: OscConfig,
     pub ui: UiConfig,
     pub overlay: OverlayConfig,
+    pub steamvr: SteamVrConfig,
     pub debug: DebugConfig,
     pub updates: UpdateConfig,
 }
@@ -50,6 +51,7 @@ impl Default for Config {
             osc: OscConfig::default(),
             ui: UiConfig::default(),
             overlay: OverlayConfig::default(),
+            steamvr: SteamVrConfig::default(),
             debug: DebugConfig::default(),
             updates: UpdateConfig::default(),
         }
@@ -392,6 +394,57 @@ impl Default for OverlayConfig {
     }
 }
 
+/// Optional SteamVR integration: an in-headset BPM overlay and controller buzz on alerts.
+/// String fields (not enums) so a bad hand edit falls back to the default instead of making the
+/// whole file unreadable.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SteamVrConfig {
+    pub enabled: bool,
+    /// Show the heart rate overlay in the headset.
+    pub overlay: bool,
+    /// Where the overlay sits: "left_wrist", "right_wrist" or "hud".
+    pub attach: String,
+    /// "small", "medium" or "large".
+    pub size: String,
+    /// Overlay opacity in percent (20..=100).
+    pub opacity: u32,
+    /// Buzz the controllers when a heart rate alert fires or reminds.
+    pub haptics: bool,
+    /// Which controller buzzes: "left", "right" or "both".
+    pub haptics_hand: String,
+}
+
+impl Default for SteamVrConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            overlay: true,
+            attach: "left_wrist".into(),
+            size: "medium".into(),
+            opacity: 90,
+            haptics: true,
+            haptics_hand: "both".into(),
+        }
+    }
+}
+
+impl SteamVrConfig {
+    pub fn sanitize(&mut self) {
+        let d = SteamVrConfig::default();
+        if !matches!(self.attach.as_str(), "left_wrist" | "right_wrist" | "hud") {
+            self.attach = d.attach;
+        }
+        if !matches!(self.size.as_str(), "small" | "medium" | "large") {
+            self.size = d.size;
+        }
+        if !matches!(self.haptics_hand.as_str(), "left" | "right" | "both") {
+            self.haptics_hand = d.haptics_hand;
+        }
+        self.opacity = self.opacity.clamp(20, 100);
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct DebugConfig {
@@ -471,6 +524,7 @@ impl Config {
         if self.overlay.port < 1024 {
             self.overlay.port = OverlayConfig::default().port;
         }
+        self.steamvr.sanitize();
         self
     }
 }
@@ -864,6 +918,30 @@ mod tests {
         assert_eq!(c.source.osc_input.port, 9010);
         assert_eq!(c.source.osc_input.address, "/avatar/parameters/HR");
         assert_eq!(c.source.hyperate.device_id, "abc");
+    }
+
+    #[test]
+    fn steamvr_defaults_and_sanitize() {
+        let c = Config::default();
+        assert!(!c.steamvr.enabled, "SteamVR is opt-in");
+        assert_eq!(c.steamvr.attach, "left_wrist");
+        let (c, _) = ConfigStore::parse(
+            r#"{"schema_version":3,"steamvr":{"enabled":true,"attach":"forehead","size":"huge","opacity":3,"haptics_hand":"feet"}}"#,
+        )
+        .unwrap();
+        assert!(c.steamvr.enabled);
+        assert_eq!(c.steamvr.attach, "left_wrist");
+        assert_eq!(c.steamvr.size, "medium");
+        assert_eq!(c.steamvr.opacity, 20);
+        assert_eq!(c.steamvr.haptics_hand, "both");
+        assert!(
+            c.steamvr.overlay && c.steamvr.haptics,
+            "missing fields default on"
+        );
+        let (c, _) =
+            ConfigStore::parse(r#"{"schema_version":3,"steamvr":{"attach":"hud","opacity":900}}"#).unwrap();
+        assert_eq!(c.steamvr.attach, "hud");
+        assert_eq!(c.steamvr.opacity, 100);
     }
 
     #[test]

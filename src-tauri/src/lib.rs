@@ -87,6 +87,8 @@ pub fn run() {
         if let RunEvent::Exit = event {
             if let Some(state) = app.try_state::<AppState>() {
                 state.quitting.store(true, Ordering::SeqCst);
+                // Removes the in-headset overlay before the engine goes.
+                state.steamvr.shutdown();
                 let engine = state.engine.clone();
                 // Sends Connected=false to every OSC target before quitting.
                 tauri::async_runtime::block_on(engine.shutdown());
@@ -148,8 +150,12 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         )
     });
 
+    // Optional SteamVR overlay + haptics on its own thread; it only reads engine channels.
+    let steamvr = kittytooth_core::steamvr::spawn(&engine);
+    let steamvr_status = steamvr.subscribe();
     let state = AppState::new(
         engine.clone(),
+        steamvr,
         store,
         logging,
         secrets,
@@ -161,6 +167,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     tray::create(&handle, &config)?;
     spawn_bridges(&handle, &engine);
+    spawn_steamvr_bridge(&handle, steamvr_status);
     tray::spawn_updater(handle.clone(), engine.clone());
 
     // "Start minimized to tray" applies to every launch, including start-with-Windows
@@ -198,6 +205,20 @@ fn notify_alert(
     if let Err(err) = app.notification().builder().title(title).body(body).show() {
         tracing::warn!(error = %err, "could not show the alert notification");
     }
+}
+
+/// Forwards SteamVR connection status to the UI.
+fn spawn_steamvr_bridge(
+    app: &tauri::AppHandle,
+    mut status: tokio::sync::watch::Receiver<kittytooth_core::steamvr::SteamVrStatus>,
+) {
+    let a = app.clone();
+    tauri::async_runtime::spawn(async move {
+        while status.changed().await.is_ok() {
+            let s = status.borrow_and_update().clone();
+            let _ = a.emit("steamvr", &s);
+        }
+    });
 }
 
 /// Forwards engine state to the UI. Snapshots are throttled to display rate; beats and

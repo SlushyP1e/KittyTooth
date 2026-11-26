@@ -23,6 +23,7 @@ import type {
   Session,
   SourceKind,
   UpdateInfo,
+  SteamVrStatus,
   UserError,
 } from "../types";
 
@@ -164,6 +165,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     });
   }
   info.secrets = secretStatuses();
+  // A browser has no SteamVR: "not running" once turned on.
+  const steamvrOf = (c: Config): SteamVrStatus => ({
+    state: c.steamvr?.enabled ? "not_running" : "off",
+    version: null,
+    message: null,
+  });
+  let steamvr = steamvrOf(config);
 
   function emit<K extends keyof BackendEvents>(event: K, payload: BackendEvents[K]) {
     listeners.get(event)?.forEach((cb) => cb(structuredClone(payload)));
@@ -488,7 +496,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     peek: () => structuredClone(snap),
     async getState(): Promise<InitialState> {
-      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info });
+      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info, steamvr });
     },
     async setConfig(c: Config): Promise<ConfigResult> {
       const next = structuredClone(c);
@@ -508,6 +516,11 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
         stats: { sent: 0, coalesced: 0, errors: 0, last_error: null },
       }));
       info.overlay_url = config.overlay.enabled ? `http://127.0.0.1:${config.overlay.port}/overlay` : null;
+      const vr = steamvrOf(config);
+      if (vr.state !== steamvr.state) {
+        steamvr = vr;
+        emit("steamvr", vr);
+      }
       publish();
       return structuredClone({ config, info });
     },

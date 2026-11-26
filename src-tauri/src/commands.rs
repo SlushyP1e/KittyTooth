@@ -6,6 +6,7 @@ use kittytooth_core::history::{self, Session, SessionStore, SessionSummary};
 use kittytooth_core::osc::sender::OscLogEntry;
 use kittytooth_core::sensor::DiscoveredDevice;
 use kittytooth_core::source::{self, SecretKind, SecretStatus, SourceKind};
+use kittytooth_core::steamvr::SteamVrStatus;
 use kittytooth_core::{KtError, UserError};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, State};
@@ -45,6 +46,7 @@ pub struct InitialState {
     pub config: Config,
     pub devices: Vec<DiscoveredDevice>,
     pub info: AppInfo,
+    pub steamvr: SteamVrStatus,
 }
 
 async fn app_info(state: &AppState) -> AppInfo {
@@ -77,6 +79,7 @@ pub async fn get_state(state: State<'_, AppState>) -> CmdResult<InitialState> {
         config: state.engine.config(),
         devices: state.engine.devices(),
         info: app_info(&state).await,
+        steamvr: state.steamvr.status(),
     })
 }
 
@@ -351,13 +354,14 @@ pub async fn copy_diagnostics(app: AppHandle, state: State<'_, AppState>) -> Cmd
     let text = format!(
         "KittyTooth diagnostics\n\
          ======================\n\
-         version: {}\nplatform: {}\nconfig: {}\nlogs: {}\noverlay: {}\ncredentials (values never included): {}\n\n\
+         version: {}\nplatform: {}\nconfig: {}\nlogs: {}\noverlay: {}\nsteamvr: {}\ncredentials (values never included): {}\n\n\
          -- engine snapshot --\n{}\n\n-- config --\n{}\n\n-- recent log --\n{}\n",
         info.version,
         info.platform,
         info.config_path,
         info.log_dir,
         info.overlay_url.as_deref().unwrap_or("off"),
+        serde_json::to_string(&state.steamvr.status()).unwrap_or_default(),
         creds.join(", "),
         serde_json::to_string_pretty(&snap).unwrap_or_default(),
         serde_json::to_string_pretty(&cfg).unwrap_or_default(),
