@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { app } from "./lib/stores/app.svelte";
+  import { updates } from "./lib/stores/update.svelte";
   import { backend } from "./lib/api";
   import { applyMotion, applyTheme } from "./lib/theme";
   import { formatBpm } from "./lib/format";
@@ -138,6 +139,12 @@
     location.hash = `#/${v}`;
   }
 
+  function openUpdates(e: MouseEvent) {
+    e.preventDefault();
+    navigate("settings");
+    setTimeout(() => document.getElementById("updates")?.scrollIntoView({ block: "start" }), 60);
+  }
+
   $effect(() => {
     applyTheme(app.config.ui.theme, app.config.ui.accent);
   });
@@ -164,8 +171,13 @@
     const mqMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     const onMotion = () => applyMotion(app.config.ui.motion ?? "on");
     mqMotion?.addEventListener?.("change", onMotion);
-    void app.init(backend());
+    const api = backend();
+    void app.init(api).then(() => {
+      // Only the main window checks; the mini window shares this component.
+      if (parseHash() !== "mini") void updates.start(api, () => app.config.updates?.auto_check ?? true);
+    });
     return () => {
+      updates.stop();
       window.removeEventListener("hashchange", onHash);
       mq?.removeEventListener?.("change", onScheme);
       mqMotion?.removeEventListener?.("change", onMotion);
@@ -233,7 +245,18 @@
         {/if}
         <span class="now-unit mono">bpm</span>
       </a>
-      <p class="foot mono">{app.isMock ? "demo data" : `v${app.info?.version ?? ""}`}</p>
+      <div class="foot">
+        <p class="mono">{app.isMock ? "demo data" : `v${app.info?.version ?? ""}`}</p>
+        {#if updates.info && (updates.status === "available" || updates.status === "downloading")}
+          <a
+            href="#/settings"
+            class="tag update-pill"
+            title="KittyTooth v{updates.info.version} is available"
+            aria-label="Update available: v{updates.info.version}"
+            onclick={openUpdates}>Update available</a
+          >
+        {/if}
+      </div>
     </nav>
     <div class="main-wrap">
       <main id="main-content" bind:this={mainEl} tabindex="-1">
@@ -423,7 +446,27 @@
     color: var(--muted);
   }
   .foot {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: var(--s2);
     padding: 0 var(--s2);
+  }
+  .foot p {
+    margin: 0;
+  }
+  .update-pill {
+    height: 20px;
+    padding: 0 8px;
+    font-size: 10.5px;
+    text-decoration: none;
+  }
+  .update-pill:hover {
+    background: color-mix(in srgb, var(--pink) 20%, transparent);
+  }
+  .update-pill:focus-visible {
+    outline: 2px solid var(--pink);
+    outline-offset: 2px;
   }
   .main-wrap {
     padding: 10px;

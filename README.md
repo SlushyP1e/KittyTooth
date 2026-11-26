@@ -68,6 +68,10 @@ Download from the [latest release](../../releases/latest):
 
 Requirements: Windows 10/11 with Bluetooth 4.0+ (built-in or a USB dongle).
 
+KittyTooth checks for new versions on launch and every 6 hours (turn it off in Settings →
+Updates). The installer and AppImage update in place with one click; the portable exe links
+you to the release page. Nothing installs without asking.
+
 ## Resource usage
 
 KittyTooth is two parts, and you can see both in Task Manager:
@@ -247,6 +251,7 @@ Linux needs `libwebkit2gtk-4.1-dev libdbus-1-dev libayatana-appindicator3-dev li
 The HypeRate source needs a developer API key. Builds read it at compile time from
 `KITTYTOOTH_HYPERATE_KEY` (CI passes the `HYPERATE_API_KEY` repository secret); without it,
 users paste their own key on the Source page. Never commit a key.
+Releases and the one-time update signing setup: [docs/RELEASING.md](docs/RELEASING.md).
 Architecture and milestones: [PLAN.md](PLAN.md). Design decisions: [DECISIONS.md](DECISIONS.md).
 Requirement coverage: [CHECKLIST.md](CHECKLIST.md).
 

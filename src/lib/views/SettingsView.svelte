@@ -3,6 +3,7 @@
   import Toggle from "../components/Toggle.svelte";
   import Choice from "../components/Choice.svelte";
   import ErrorBanner from "../components/ErrorBanner.svelte";
+  import UpdatesSection from "../components/UpdatesSection.svelte";
   import { ACCENT_PRESETS, isCustomAccent } from "../theme";
   import { ZONE_NAMES } from "../format";
   import type { Motion, Smoothing, Theme } from "../types";
@@ -435,6 +436,8 @@
       />
     </div>
   </div>
+
+  <UpdatesSection />
 
   <div class="section">
     <h2 class="section-label">OBS overlay</h2>

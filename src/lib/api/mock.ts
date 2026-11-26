@@ -19,6 +19,7 @@ import type {
   SecretKind,
   SecretStatus,
   SourceKind,
+  UpdateInfo,
   UserError,
 } from "../types";
 
@@ -81,7 +82,20 @@ export interface MockOptions {
   sampleMs?: number;
   /** Prefilled history in seconds. */
   prefill?: number;
+  /** Fake update on offer: "available" (default), "portable", "none" or "error". */
+  update?: "available" | "portable" | "none" | "error";
 }
+
+/** The pretend release the demo UI offers. */
+export const MOCK_UPDATE_VERSION = "1.3.0";
+const MOCK_UPDATE_NOTES = `## What's new
+* Check for updates from Settings, with release notes right in the app
+* Smoother heart animation at high BPM
+
+## Fixes
+* The tray icon no longer flickers when the sensor reconnects
+
+**Full Changelog**: https://github.com/SlushyP1e/KittyTooth/compare/v1.2.0...v1.3.0`;
 
 export interface MockBackend extends Backend {
   dispose(): void;
@@ -93,6 +107,8 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
   const params = typeof location !== "undefined" ? new URLSearchParams(location.search) : new URLSearchParams();
   const scenario = opts.scenario ?? (params.get("mock") as MockOptions["scenario"]) ?? "demo";
   const sampleMs = opts.sampleMs ?? 1000;
+  const updateMode = opts.update ?? (params.get("update") as MockOptions["update"]) ?? "available";
+  let updateInstalled = false;
   const prefill = opts.prefill ?? 300;
   const rand = mulberry32(1234);
   const listeners = new Map<keyof BackendEvents, Set<AnyListener>>();
@@ -618,6 +634,43 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     async showMain() {},
     async startDrag() {},
+    async checkUpdate(): Promise<UpdateInfo | null> {
+      await new Promise<void>((r) => later(400, r));
+      if (updateMode === "error") {
+        throw {
+          code: "update_check_failed",
+          title: "Couldn't check for updates",
+          message: "GitHub didn't answer, or the release has no update information yet.",
+          fix: "Check your internet connection and try again later.",
+        } satisfies UserError;
+      }
+      if (updateMode === "none" || updateInstalled) return null;
+      const portable = updateMode === "portable";
+      return {
+        current: info.version,
+        version: MOCK_UPDATE_VERSION,
+        notes: MOCK_UPDATE_NOTES,
+        date: "2026-11-20T12:00:00Z",
+        install_kind: portable ? "portable" : "installer",
+        can_install: !portable,
+        release_url: `https://github.com/SlushyP1e/KittyTooth/releases/tag/v${MOCK_UPDATE_VERSION}`,
+      };
+    },
+    async installUpdate() {
+      if (updateMode === "portable") throw new Error("portable copies can't install");
+      const total = 9_400_000;
+      for (let d = 0; d < total; ) {
+        await new Promise<void>((r) => later(120, r));
+        d = Math.min(total, d + 1_900_000);
+        emit("update_progress", { downloaded: d, total });
+      }
+      // Pretend the app restarted on the new version.
+      updateInstalled = true;
+      info.version = MOCK_UPDATE_VERSION;
+    },
+    async openRelease(version: string) {
+      if (typeof window !== "undefined") window.open(`https://github.com/SlushyP1e/KittyTooth/releases/tag/v${version}`, "_blank", "noopener");
+    },
     async on<K extends keyof BackendEvents>(event: K, cb: (p: BackendEvents[K]) => void): Promise<Unlisten> {
       let set = listeners.get(event);
       if (!set) listeners.set(event, (set = new Set()));

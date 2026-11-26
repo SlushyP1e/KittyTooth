@@ -32,6 +32,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis", "appimage"],
+    "createUpdaterArtifacts": false,
     "publisher": "KittyTooth",
     "copyright": "Copyright (c) 2026 SlushyPie. MIT License.",
     "category": "Utility",
@@ -53,6 +54,13 @@
     },
     "linux": {
       "appimage": { "bundleMediaFramework": false }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "REPLACE_WITH_PUBLIC_KEY_FROM_npx_tauri_signer_generate",
+      "endpoints": ["https://github.com/SlushyP1e/KittyTooth/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
     }
   }
 }

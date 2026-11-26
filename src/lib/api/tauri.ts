@@ -11,6 +11,7 @@ import type {
   InitialState,
   OscLogEntry,
   SecretStatus,
+  UpdateInfo,
 } from "../types";
 
 async function call<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
@@ -48,6 +49,9 @@ export function createTauriBackend(): Backend {
     closeMini: () => call("close_mini"),
     showMain: () => call("show_main"),
     startDrag: () => getCurrentWindow().startDragging(),
+    checkUpdate: () => call<UpdateInfo | null>("check_update"),
+    installUpdate: () => call("install_update"),
+    openRelease: (version) => call("open_release", { version }),
     async on<K extends keyof BackendEvents>(event: K, cb: (p: BackendEvents[K]) => void): Promise<Unlisten> {
       return listen<BackendEvents[K]>(event, (e) => cb(e.payload));
     },

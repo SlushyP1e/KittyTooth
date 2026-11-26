@@ -16,5 +16,6 @@ pub mod processing;
 pub mod sensor;
 pub mod source;
 pub mod tray_icon;
+pub mod update;
 
 pub use error::{KtError, KtResult, UserError};
