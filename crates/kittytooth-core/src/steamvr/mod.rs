@@ -1,4 +1,4 @@
-//! Optional SteamVR integration: a small BPM overlay in the headset (on a wrist or in view) and
+//! Optional SteamVR integration: a small BPM overlay in the headset (a wrist watch or in view) and
 //! a heartbeat-like controller buzz when a heart rate alert fires.
 //!
 //! It runs on its own OS thread and only reads the engine's watch/broadcast channels, so it can
@@ -326,9 +326,9 @@ pub fn view_of(s: &Snapshot) -> View {
 pub fn overlay_width(attach: &str, size: &str) -> f32 {
     let wrist = attach != "hud";
     match (wrist, size) {
-        (true, "small") => 0.07,
-        (true, "large") => 0.14,
-        (true, _) => 0.10,
+        (true, "small") => 0.06,
+        (true, "large") => 0.11,
+        (true, _) => 0.08,
         (false, "small") => 0.18,
         (false, "large") => 0.36,
         (false, _) => 0.26,
@@ -341,15 +341,55 @@ fn rot_x(deg: f32, t: [f32; 3]) -> Matrix34 {
     [[1.0, 0.0, 0.0, t[0]], [0.0, c, -s, t[1]], [0.0, s, c, t[2]]]
 }
 
-/// Overlay pose relative to its device. A wrist overlay lies on top of the controller, just
-/// behind it, tilted back towards your eyes (text up = towards the controller tip). The HUD sits
-/// a metre ahead, a little below eye level, tilted up to face you.
-pub fn attach_transform(attach: &str) -> Matrix34 {
-    if attach == "hud" {
-        rot_x(-15.0, [0.0, -0.28, -1.0])
-    } else {
-        rot_x(-60.0, [0.0, 0.03, 0.12])
+/// The forearm runs back and down from a held controller (+Z, pitched down by this much).
+const FOREARM_PITCH: f32 = 25.0;
+/// Distance from the forearm's centre line to the watch face.
+const WRIST_RADIUS: f32 = 0.035;
+
+/// Overlay pose relative to its device (OpenVR controller space: +X right, +Y up, -Z forward;
+/// an overlay faces its own +Z).
+///
+/// The wrist overlay is a watch: it sits on the forearm behind the controller, flat against the
+/// back of the wrist (or the inside), reading along the arm the way a wristwatch does when you
+/// raise it to look. The HUD sits a metre ahead, a little below eye level, tilted up to face you.
+pub fn overlay_transform(cfg: &SteamVrConfig) -> Matrix34 {
+    if cfg.attach == "hud" {
+        return rot_x(-15.0, [0.0, -0.28, -1.0]);
     }
+    // -1 on the left hand: the back of the left hand faces -X, of the right hand +X.
+    let s = if cfg.attach == "right_wrist" { 1.0 } else { -1.0 };
+    let along = match cfg.wrist_offset.as_str() {
+        "near" => 0.11,
+        "far" => 0.21,
+        _ => 0.16,
+    };
+    // Face normal: out of the back of the wrist, or of the palm side for "inside".
+    let n = if cfg.wrist_side == "inside" {
+        [-s, 0.0, 0.0]
+    } else {
+        [s, 0.0, 0.0]
+    };
+    // Text runs along the arm towards the hand on the left, towards the elbow on the right
+    // (left to right as you look at it either way); "up" is then n x x.
+    let x = [0.0, 0.0, s];
+    let y = cross(n, x);
+    let p = [n[0] * WRIST_RADIUS, 0.0, along];
+    let pitch = rot_x(FOREARM_PITCH, [0.0; 3]);
+    let r = |v: [f32; 3]| -> [f32; 3] { [0, 1, 2].map(|i| (0..3).map(|k| pitch[i][k] * v[k]).sum::<f32>()) };
+    let (x, y, z, t) = (r(x), r(y), r(n), r(p));
+    [
+        [x[0], y[0], z[0], t[0]],
+        [x[1], y[1], z[1], t[1]],
+        [x[2], y[2], z[2], t[2]],
+    ]
+}
+
+fn cross(a: [f32; 3], b: [f32; 3]) -> [f32; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 /// Heartbeat buzz: a strong "lub", a pause, a softer "dub". (start ms, end ms, pulse µs)
@@ -455,7 +495,10 @@ impl Connected {
             }
         };
 
-        let want = (cfg.attach.clone(), cfg.size.clone());
+        let want = (
+            cfg.attach.clone(),
+            format!("{}/{}/{}", cfg.size, cfg.wrist_side, cfg.wrist_offset),
+        );
         let changed = self.applied.as_ref() != Some(&want);
         if changed {
             for h in hs {
@@ -474,7 +517,7 @@ impl Connected {
             match device {
                 Some(d) => {
                     if changed || self.shown_on != Some(d) {
-                        let m = attach_transform(&cfg.attach);
+                        let m = overlay_transform(cfg);
                         for h in hs {
                             self.session.set_transform_relative(h, d, &m);
                         }
@@ -562,7 +605,7 @@ impl Connected {
                 let poses = self.session.poses(d + 1);
                 let (hmd, dev) = (&poses[ffi::TRACKED_DEVICE_HMD as usize], &poses[d as usize]);
                 if hmd.pose_is_valid && dev.pose_is_valid {
-                    let overlay = fade::mul(&dev.device_to_absolute, &attach_transform(&cfg.attach));
+                    let overlay = fade::mul(&dev.device_to_absolute, &overlay_transform(cfg));
                     let gaze = fade::gaze_angle(&hmd.device_to_absolute, &overlay);
                     let facing = fade::facing_angle(&hmd.device_to_absolute, &overlay);
                     fade::fade_target(gaze, facing, fade::fade_angles(&cfg.fade_angle))
@@ -680,17 +723,40 @@ mod tests {
     fn placement_values() {
         assert!(overlay_width("hud", "large") > overlay_width("hud", "small"));
         assert!(overlay_width("left_wrist", "medium") < overlay_width("hud", "medium"));
-        // Rotations stay orthonormal.
-        for a in ["hud", "left_wrist"] {
-            let m = attach_transform(a);
-            for r in &m {
-                let n: f32 = r[..3].iter().map(|v| v * v).sum();
-                assert!((n - 1.0).abs() < 1e-5);
+        let cfg = |attach: &str, side: &str, offset: &str| SteamVrConfig {
+            attach: attach.into(),
+            wrist_side: side.into(),
+            wrist_offset: offset.into(),
+            ..Default::default()
+        };
+        let col = |m: &Matrix34, c: usize| [m[0][c], m[1][c], m[2][c]];
+        // Rotations stay orthonormal and right-handed (x cross y = z).
+        for a in ["hud", "left_wrist", "right_wrist"] {
+            for side in ["outside", "inside"] {
+                let m = overlay_transform(&cfg(a, side, "normal"));
+                for c in 0..3 {
+                    let n: f32 = col(&m, c).iter().map(|v| v * v).sum();
+                    assert!((n - 1.0).abs() < 1e-5, "{a} {side}");
+                }
+                let z = cross(col(&m, 0), col(&m, 1));
+                assert!((0..3).all(|i| (z[i] - m[i][2]).abs() < 1e-5), "{a} {side}");
             }
         }
-        // The wrist overlay faces up and back (its +Z goes towards +Y and +Z of the controller).
-        let m = attach_transform("left_wrist");
-        assert!(m[1][2] > 0.5 && m[2][2] > 0.0);
+        // Left watch: behind the controller on the forearm, facing out of the back of the hand.
+        let l = overlay_transform(&cfg("left_wrist", "outside", "normal"));
+        assert!(l[2][3] > 0.1 && l[1][3] < 0.0, "behind and below the controller");
+        assert!(
+            l[0][3] < 0.0 && l[0][2] < -0.9,
+            "on the -X (back of hand) side, facing -X"
+        );
+        // Right watch mirrors it; the inside face points the other way.
+        let r = overlay_transform(&cfg("right_wrist", "outside", "normal"));
+        assert!(r[0][3] > 0.0 && r[0][2] > 0.9);
+        let li = overlay_transform(&cfg("left_wrist", "inside", "normal"));
+        assert!(li[0][2] > 0.9);
+        // Further up the arm.
+        let far = overlay_transform(&cfg("left_wrist", "outside", "far"));
+        assert!(far[2][3] > l[2][3]);
         assert!(HEARTBEAT.iter().all(|&(a, b, us)| a < b && us <= 3999));
     }
 

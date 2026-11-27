@@ -9,6 +9,7 @@ import type {
   Snapshot,
   SourceKind,
   SteamVrStatus,
+  DiscordStatus,
   UserError,
 } from "../types";
 import { HistoryBuffer } from "./history";
@@ -29,6 +30,7 @@ export class AppStore {
   devices = $state<DiscoveredDevice[]>([]);
   info = $state<AppInfo | null>(null);
   steamvr = $state<SteamVrStatus>({ state: "off", version: null, message: null });
+  discord = $state<DiscordStatus>({ state: "off", user: null, message: null });
   ready = $state(false);
   isMock = $state(false);
   saving = $state<"idle" | "pending" | "saved" | "error">("idle");
@@ -57,6 +59,7 @@ export class AppStore {
       await backend.on("snapshot", (s) => (this.snapshot = s)),
       await backend.on("devices", (d) => (this.devices = d)),
       await backend.on("steamvr", (s) => (this.steamvr = s)),
+      await backend.on("discord", (s) => (this.discord = s)),
       await backend.on("config", (c) => {
         if (this.saving !== "pending") this.config = c;
       }),
@@ -80,6 +83,7 @@ export class AppStore {
       this.devices = st.devices;
       this.info = st.info;
       if (st.steamvr) this.steamvr = st.steamvr;
+      if (st.discord) this.discord = st.discord;
       if (st.info.notice) this.toastError(st.info.notice);
       const hist = await backend.getHistory(0);
       this.history.set(hist);

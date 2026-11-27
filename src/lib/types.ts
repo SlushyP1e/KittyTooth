@@ -278,6 +278,8 @@ export type VrAttach = "left_wrist" | "right_wrist" | "hud";
 export type VrSize = "small" | "medium" | "large";
 export type VrHand = "left" | "right" | "both";
 export type VrFadeAngle = "narrow" | "normal" | "wide";
+export type VrWristSide = "outside" | "inside";
+export type VrWristOffset = "near" | "normal" | "far";
 
 export interface SteamVrConfig {
   enabled: boolean;
@@ -285,6 +287,10 @@ export interface SteamVrConfig {
   overlay: boolean;
   attach: VrAttach;
   size: VrSize;
+  /** Watch face on the back (outside) or inside of the wrist. */
+  wrist_side: VrWristSide;
+  /** How far up the forearm the watch sits. */
+  wrist_offset: VrWristOffset;
   /** Percent, 20..100. */
   opacity: number;
   /** Fade a wrist overlay out unless you look at it (alerts always show). */
@@ -293,6 +299,26 @@ export interface SteamVrConfig {
   /** Buzz the controllers when an alert fires or reminds. */
   haptics: boolean;
   haptics_hand: VrHand;
+}
+
+/** Discord Rich Presence ("Playing KittyTooth" with your heart rate). */
+export interface DiscordConfig {
+  enabled: boolean;
+  show_zone: boolean;
+  show_device: boolean;
+  /** "Get KittyTooth" button linking to GitHub. */
+  button: boolean;
+  /** Overrides the built-in Discord application ID (digits; empty = built-in). */
+  app_id: string;
+}
+
+export type DiscordState = "off" | "no_app_id" | "not_running" | "connected" | "error";
+
+export interface DiscordStatus {
+  state: DiscordState;
+  /** Discord account the presence shows on. */
+  user: string | null;
+  message: string | null;
 }
 
 export type SteamVrState = "off" | "not_installed" | "not_running" | "connected" | "error";
@@ -368,6 +394,7 @@ export interface Config {
   };
   overlay: { enabled: boolean; port: number };
   steamvr: SteamVrConfig;
+  discord: DiscordConfig;
   debug: { log_latency: boolean };
   updates: UpdateConfig;
 }
@@ -417,6 +444,7 @@ export interface InitialState {
   devices: DiscoveredDevice[];
   info: AppInfo;
   steamvr: SteamVrStatus;
+  discord?: DiscordStatus;
 }
 
 export interface ConfigResult {
@@ -440,4 +468,5 @@ export interface BackendEvents {
   /** A saved session began, ended or was removed. */
   sessions: null;
   steamvr: SteamVrStatus;
+  discord: DiscordStatus;
 }

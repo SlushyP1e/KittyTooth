@@ -24,6 +24,7 @@ import type {
   SourceKind,
   UpdateInfo,
   SteamVrStatus,
+  DiscordStatus,
   UserError,
 } from "../types";
 
@@ -172,6 +173,13 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     message: null,
   });
   let steamvr = steamvrOf(config);
+  // Nor Discord.
+  const discordOf = (c: Config): DiscordStatus => ({
+    state: c.discord?.enabled ? "not_running" : "off",
+    user: null,
+    message: null,
+  });
+  let discord = discordOf(config);
 
   function emit<K extends keyof BackendEvents>(event: K, payload: BackendEvents[K]) {
     listeners.get(event)?.forEach((cb) => cb(structuredClone(payload)));
@@ -496,7 +504,7 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
     },
     peek: () => structuredClone(snap),
     async getState(): Promise<InitialState> {
-      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info, steamvr });
+      return structuredClone({ snapshot: snap, config, devices: [...devices.values()], info, steamvr, discord });
     },
     async setConfig(c: Config): Promise<ConfigResult> {
       const next = structuredClone(c);
@@ -520,6 +528,11 @@ export function createMockBackend(opts: MockOptions = {}): MockBackend {
       if (vr.state !== steamvr.state) {
         steamvr = vr;
         emit("steamvr", vr);
+      }
+      const dc = discordOf(config);
+      if (dc.state !== discord.state) {
+        discord = dc;
+        emit("discord", dc);
       }
       publish();
       return structuredClone({ config, info });
