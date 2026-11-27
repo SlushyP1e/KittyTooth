@@ -30,6 +30,8 @@ const PROBE_EVERY: Duration = Duration::from_secs(10);
 /// Discord allows about one presence update every few seconds; stay well under its limit.
 const MIN_UPDATE: Duration = Duration::from_secs(10);
 const TICK: Duration = Duration::from_millis(250);
+/// Sleep while there is nothing to do. Kept under `shutdown`'s one-second wait.
+const OFF_TICK: Duration = Duration::from_millis(500);
 /// Largest frame accepted from Discord.
 const MAX_FRAME: u32 = 64 * 1024;
 
@@ -378,7 +380,7 @@ impl Worker {
                 } else {
                     DiscordState::Off
                 }));
-                std::thread::sleep(TICK);
+                std::thread::sleep(OFF_TICK);
                 continue;
             }
             let id = id.unwrap_or_default();
@@ -428,9 +430,12 @@ impl Worker {
             }
 
             let s = session.as_mut().expect("connected");
-            let want = activity(&self.snapshot.borrow(), &cfg, self.started);
+            // Only build the activity once an update would be allowed.
             let due = s.sent_at.is_none_or(|t| t.elapsed() >= MIN_UPDATE);
-            if s.sent.as_ref() != Some(&want) && due {
+            let changed = due
+                .then(|| activity(&self.snapshot.borrow(), &cfg, self.started))
+                .filter(|want| s.sent.as_ref() != Some(want));
+            if let Some(want) = changed {
                 match s.ipc.set_activity(Some(&want)) {
                     Ok(()) => {
                         s.sent = Some(want);

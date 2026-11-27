@@ -43,6 +43,8 @@ const PULSE: Duration = Duration::from_millis(100);
 const SWEEP_LEN: Duration = Duration::from_secs(16);
 const CONNECT_ATTEMPT_TIMEOUT: Duration = Duration::from_secs(45);
 const HISTORY_CAP: usize = 6 * 60 * 60 * 4; // 6 h at 4 samples/s
+/// The UI keeps no more than this (`HistoryBuffer` in `history.ts`).
+const HISTORY_REPLY_CAP: usize = 43_200;
 /// The main source must deliver this long before the engine switches back from the backup.
 pub const FALLBACK_RECOVER: Duration = Duration::from_secs(3);
 /// Rate-limited services are retried no sooner than this.
@@ -361,12 +363,19 @@ impl EngineHandle {
         self.sessions.as_ref()
     }
 
-    /// History points newer than `since_ms` (0 = everything).
+    /// History points newer than `since_ms` (0 = everything), at most the newest
+    /// `HISTORY_REPLY_CAP`.
     pub fn history(&self, since_ms: u64) -> Vec<HistoryPoint> {
         self.shared
             .history
             .lock()
-            .map(|h| h.iter().filter(|p| p.t_ms > since_ms).copied().collect())
+            .map(|h| {
+                h.iter()
+                    .skip(h.len().saturating_sub(HISTORY_REPLY_CAP))
+                    .filter(|p| p.t_ms > since_ms)
+                    .copied()
+                    .collect()
+            })
             .unwrap_or_default()
     }
 }

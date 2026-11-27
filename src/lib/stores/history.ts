@@ -40,7 +40,8 @@ export class HistoryBuffer {
     this.t.length = 0;
     this.v.length = 0;
     const sorted = [...points].sort((a, b) => a.t_ms - b.t_ms);
-    for (const p of sorted) this.push(p);
+    // Trim first: pushing past the cap would shift the whole array once per extra point.
+    for (const p of sorted.slice(-this.cap)) this.push(p);
     this.version++;
   }
 

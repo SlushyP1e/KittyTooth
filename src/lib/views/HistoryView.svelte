@@ -9,8 +9,9 @@
   import { formatBytes, formatDay, formatSpan, formatTime, RETENTION_LABELS, sourceLabel } from "../sessions";
   import type { Retention, Session, SessionSummary } from "../types";
 
-  let list = $state<SessionSummary[] | null>(null);
-  let selected = $state<Session | null>(null);
+  // Replaced, never edited in place. A session can hold tens of thousands of samples.
+  let list = $state.raw<SessionSummary[] | null>(null);
+  let selected = $state.raw<Session | null>(null);
   let loadingId = $state<string | null>(null);
   let confirmDelete = $state(false);
   let dir = $state(1);

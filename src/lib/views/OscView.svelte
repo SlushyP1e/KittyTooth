@@ -10,7 +10,7 @@
 
   const s = $derived(app.snapshot);
   const cb = $derived(app.config.osc.chatbox);
-  let log = $state<OscLogEntry[]>([]);
+  let log = $state.raw<OscLogEntry[]>([]);
   let paused = $state(false);
   const TOKENS = ["{hr}", "{heart}", "{min}", "{avg}", "{max}", "{hrv}", "{zone}", "{battery}"];
 
@@ -30,7 +30,10 @@
       if (!alive) return;
       if (!paused && !document.hidden) {
         const entries = await app.run((a) => a.getOscLog());
-        if (entries && alive) log = entries.slice().reverse();
+        if (entries && alive) {
+          const newest = entries[entries.length - 1]?.seq;
+          if (entries.length !== log.length || newest !== log[0]?.seq) log = entries.slice().reverse();
+        }
       }
       setTimeout(poll, 250);
     };

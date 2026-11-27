@@ -2541,7 +2541,7 @@ dependencies = [
 
 [[package]]
 name = "kittytooth"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "keyring",
  "kittytooth-core",
@@ -2560,11 +2560,13 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "webview2-com",
+ "windows-core",
 ]
 
 [[package]]
 name = "kittytooth-core"
-version = "1.4.0"
+version = "1.4.1"
 dependencies = [
  "async-trait",
  "btleplug",

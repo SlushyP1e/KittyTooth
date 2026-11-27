@@ -2,13 +2,16 @@
 
 use std::path::{Path, PathBuf};
 
-use tracing_appender::non_blocking::WorkerGuard;
+use tracing_appender::non_blocking::{NonBlockingBuilder, WorkerGuard};
 use tracing_appender::rolling::{Builder, Rotation};
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{fmt, reload, EnvFilter, Registry};
 
 pub const LOG_PREFIX: &str = "kittytooth";
+/// Lines queued for the writer thread before new ones are dropped. The queue is allocated up
+/// front, and the library default (128,000) costs several MB for an app this quiet.
+const LOG_QUEUE_LINES: usize = 4096;
 
 pub struct Logging {
     pub dir: PathBuf,
@@ -42,7 +45,9 @@ impl Logging {
             .ok();
         let mut guard = None;
         let file_layer = appender.map(|a| {
-            let (nb, g) = tracing_appender::non_blocking(a);
+            let (nb, g) = NonBlockingBuilder::default()
+                .buffered_lines_limit(LOG_QUEUE_LINES)
+                .finish(a);
             guard = Some(g);
             fmt::layer().with_writer(nb).with_ansi(false).with_target(true)
         });

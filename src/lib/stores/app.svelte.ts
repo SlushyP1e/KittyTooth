@@ -25,9 +25,10 @@ export interface Toast {
 
 /** Global UI state. Fed by backend events; config edits are debounced and saved. */
 export class AppStore {
-  snapshot = $state<Snapshot>(emptySnapshot());
+  // `snapshot` and `devices` are only ever replaced, so deep proxies would be wasted work.
+  snapshot = $state.raw<Snapshot>(emptySnapshot());
   config = $state<Config>(defaultConfig());
-  devices = $state<DiscoveredDevice[]>([]);
+  devices = $state.raw<DiscoveredDevice[]>([]);
   info = $state<AppInfo | null>(null);
   steamvr = $state<SteamVrStatus>({ state: "off", version: null, message: null });
   discord = $state<DiscordStatus>({ state: "off", user: null, message: null });
@@ -55,6 +56,8 @@ export class AppStore {
   async init(backend: Backend): Promise<void> {
     this.backend = backend;
     this.isMock = backend.isMock;
+    // The mini window shares this store but draws no graph, so it skips history altogether.
+    const mini = typeof location !== "undefined" && location.hash === "#/mini";
     this.unlisten.push(
       await backend.on("snapshot", (s) => (this.snapshot = s)),
       await backend.on("devices", (d) => (this.devices = d)),
@@ -68,14 +71,17 @@ export class AppStore {
         this.beatCount++;
       }),
       await backend.on("alert", (a) => {
-        const mini = typeof location !== "undefined" && location.hash === "#/mini";
         if (this.config.alerts.sound && !mini) playAlertSound(a.kind);
       }),
-      await backend.on("sample", (p) => {
-        this.history.push(p);
-        this.historyVersion = this.history.version;
-      }),
     );
+    if (!mini) {
+      this.unlisten.push(
+        await backend.on("sample", (p) => {
+          this.history.push(p);
+          this.historyVersion = this.history.version;
+        }),
+      );
+    }
     try {
       const st = await backend.getState();
       this.snapshot = st.snapshot;
@@ -85,9 +91,10 @@ export class AppStore {
       if (st.steamvr) this.steamvr = st.steamvr;
       if (st.discord) this.discord = st.discord;
       if (st.info.notice) this.toastError(st.info.notice);
-      const hist = await backend.getHistory(0);
-      this.history.set(hist);
-      this.historyVersion = this.history.version;
+      if (!mini) {
+        this.history.set(await backend.getHistory(0));
+        this.historyVersion = this.history.version;
+      }
     } catch (e) {
       this.toastError(toUserError(e));
     }

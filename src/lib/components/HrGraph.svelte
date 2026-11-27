@@ -4,9 +4,8 @@
   import type { GraphRange } from "../types";
   import { cssVar, prefersReducedMotion, withAlpha } from "../theme";
 
-  // Live heart rate graph on a canvas. Scrolls smoothly at display rate while data is live;
-  // redraws only on change otherwise (and under reduced motion). No allocations per frame
-  // beyond the canvas path.
+  // Live heart rate graph on a canvas. Scrolls smoothly (up to 60 fps) while data is live;
+  // redraws only on change otherwise (and under reduced motion).
   let {
     history,
     version,
@@ -32,6 +31,10 @@
   let dpr = 1;
   let raf = 0;
   let dirty = true;
+  // Redraws are capped so 120/144 Hz screens don't pay for frames that look the same. The slack
+  // above 60 keeps ordinary 59.94-60.x Hz screens drawing every frame.
+  const FRAME_MS = 1000 / 61;
+  let nextDraw = 0;
   let yLo = 50;
   let yHi = 150;
   let ariaLabel = $state("Heart rate graph");
@@ -60,6 +63,8 @@
     canvas.style.width = `${cssW}px`;
     canvas.style.height = `${cssH}px`;
     dirty = true;
+    // Resizing cleared the canvas: redraw on the very next frame.
+    nextDraw = 0;
   }
 
   $effect(() => {
@@ -280,7 +285,10 @@
   function frame(ts: number) {
     raf = 0;
     if (document.hidden) return;
-    if (dirty) draw(ts);
+    if (dirty && ts >= nextDraw - 1) {
+      nextDraw = Math.max(nextDraw + FRAME_MS, ts);
+      draw(ts);
+    }
     if (dirty) raf = requestAnimationFrame(frame);
   }
 
