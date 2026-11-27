@@ -36,6 +36,9 @@ tracing-appender = "0.2"
 # Keychain, Secret Service on Linux), never in config.json.
 [target.'cfg(windows)'.dependencies]
 keyring = { version = "3", features = ["windows-native"] }
+# Same versions Tauri uses; for the WebView2 memory target while in the tray.
+webview2-com = "0.39"
+windows-core = "0.62"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }

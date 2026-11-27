@@ -182,6 +182,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     if !config.ui.start_minimized {
         windows::show_main(&handle);
     } else {
+        windows::set_main_awake(&handle, false);
         tracing::info!(
             autostart = std::env::args().any(|a| a == "--autostart"),
             "starting minimized to tray"

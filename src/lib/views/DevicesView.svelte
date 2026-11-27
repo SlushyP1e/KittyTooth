@@ -37,7 +37,11 @@
   onMount(() => {
     void app.run((a) => a.startScan());
     const t = setInterval(() => (now = Date.now()), 1000);
+    // Nobody can see the list from the tray or taskbar, so stop the radio until they can.
+    const onVisibility = () => void app.run((a) => (document.hidden ? a.stopScan() : a.startScan()));
+    document.addEventListener("visibilitychange", onVisibility);
     return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
       clearInterval(t);
       void app.run((a) => a.stopScan());
     };

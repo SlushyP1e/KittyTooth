@@ -32,6 +32,8 @@ const PROBE_NOT_INSTALLED: Duration = Duration::from_secs(15);
 const TICK: Duration = Duration::from_millis(50);
 /// Tick while disabled or disconnected.
 const IDLE_TICK: Duration = Duration::from_millis(200);
+/// How often the setting is re-read while the integration is turned off.
+const OFF_TICK: Duration = Duration::from_secs(1);
 /// Re-render at most this often (only when the content changed).
 const MIN_REDRAW: Duration = Duration::from_millis(250);
 /// Controller indices can change when a controller reconnects; look them up this often.
@@ -181,12 +183,17 @@ impl Worker {
 
     /// Sleeps up to `d`, waking early on shutdown.
     fn nap(&self, d: Duration) -> bool {
+        self.nap_checking(d, Duration::from_millis(25))
+    }
+
+    /// `nap` that looks for shutdown every `slice`.
+    fn nap_checking(&self, d: Duration, slice: Duration) -> bool {
         let end = Instant::now() + d;
         while Instant::now() < end {
             if self.stop.load(Ordering::SeqCst) {
                 return false;
             }
-            std::thread::sleep(Duration::from_millis(25).min(end - Instant::now()));
+            std::thread::sleep(slice.min(end.saturating_duration_since(Instant::now())));
         }
         !self.stop.load(Ordering::SeqCst)
     }
@@ -217,7 +224,8 @@ impl Worker {
                 self.set_status(SteamVrStatus::of(SteamVrState::Off));
                 next_probe = Instant::now();
                 last_logged = None;
-                if !self.nap(IDLE_TICK) {
+                // Off is the default: wake rarely.
+                if !self.nap_checking(OFF_TICK, Duration::from_millis(100)) {
                     break;
                 }
                 continue;

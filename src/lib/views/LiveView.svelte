@@ -30,8 +30,10 @@
   );
   const missing = $derived(missingFeatures(s.capabilities));
 
+  // Derived so the timer isn't restarted by every unrelated snapshot.
+  const retrying = $derived(!!s.retry_at_ms);
   $effect(() => {
-    if (!s.retry_at_ms) return;
+    if (!retrying) return;
     const t = setInterval(() => (now = Date.now()), 500);
     return () => clearInterval(t);
   });
