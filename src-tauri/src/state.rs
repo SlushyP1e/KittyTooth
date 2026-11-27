@@ -4,6 +4,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use kittytooth_core::config::{Config, ConfigStore};
+use kittytooth_core::discord::DiscordHandle;
 use kittytooth_core::engine::EngineHandle;
 use kittytooth_core::overlay::{self, OverlayServer};
 use kittytooth_core::source::SecretStore;
@@ -29,6 +30,8 @@ pub struct AppState {
     pub overlay: tokio::sync::Mutex<OverlayState>,
     /// Optional SteamVR overlay and haptics (its own thread; idle unless turned on).
     pub steamvr: SteamVrHandle,
+    /// Optional Discord Rich Presence (its own thread; idle unless turned on).
+    pub discord: DiscordHandle,
     /// Shown once in the UI (e.g. config was unreadable and defaults were used).
     pub startup_notice: Mutex<Option<UserError>>,
     pub quitting: AtomicBool,
@@ -38,6 +41,7 @@ impl AppState {
     pub fn new(
         engine: EngineHandle,
         steamvr: SteamVrHandle,
+        discord: DiscordHandle,
         store: ConfigStore,
         logging: Logging,
         secrets: Arc<dyn SecretStore>,
@@ -46,6 +50,7 @@ impl AppState {
         Self {
             engine,
             steamvr,
+            discord,
             store,
             logging,
             secrets,

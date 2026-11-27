@@ -55,9 +55,12 @@ has its own richer parameter set, a VRChat chatbox mode, a beat-synced heart, an
   full graph with alert markers, time in each zone and HRV over time, export a session as CSV
   (for example to show a doctor) or delete it. Keep sessions for 30 days, 90 days, a year or
   forever, with a space limit. **Nothing is uploaded**: sessions never leave your PC.
-* **SteamVR overlay** (optional, Settings → SteamVR): your BPM on your wrist or in view inside a
+* **SteamVR overlay** (optional, Settings → SteamVR): your BPM as a wrist watch or in view inside a
   PC VR headset, red for a high alert and amber for a low one, plus a heartbeat-like controller
   buzz when an alert fires. Off by default; does nothing if SteamVR isn't installed.
+* **Discord Rich Presence** (optional, Settings → Discord): your profile shows *Playing KittyTooth*
+  with your live BPM, zone, how long it's been open and a *Get KittyTooth* button. Talks only to
+  the Discord app on your PC.
 * **Streaming**: always-on-top mini window and a transparent OBS browser source.
 * **Tray app**: the tray icon shows your live BPM; KittyTooth keeps sending while minimized.
 * Dark/light theme, accent color, springy animations (Settings → Appearance → Motion: on, reduced
@@ -197,9 +200,11 @@ Desktop notifications don't reach you inside a headset, so KittyTooth can show y
 SteamVR itself. Turn it on in **Settings → SteamVR**:
 
 * **Show overlay**: a small card with the cat-head logo and your BPM, in the app's colours. Put it
-  on your **left wrist** or **right wrist** (it sits on top of the controller, like a watch: look
-  down at your hand) or **in view** (always visible, a little below eye level). Choose the size
-  and opacity. During a heart rate alert it turns **red** (high) or **amber** (low) and says
+  on your **left wrist** or **right wrist** as a watch (on your forearm just behind the
+  controller: raise your arm and turn your wrist to look at it, like XSOverlay's or OVR Toolkit's
+  watch) or **in view** (always visible, a little below eye level). *Watch face* puts it on the
+  back or the inside of your wrist and *Watch position* moves it nearer your hand or further up
+  your arm. Choose the size and opacity. During a heart rate alert it turns **red** (high) or **amber** (low) and says
   *HIGH* or *LOW*.
 * **Fade when not looking** (on by default, wrist only): like a watch, the wrist overlay fades in
   when you look at it and out when you look away. *Look angle* sets how close to the middle of
@@ -212,6 +217,14 @@ KittyTooth never starts SteamVR. While SteamVR isn't running it says *SteamVR no
 connects by itself within a few seconds of SteamVR starting; when you quit SteamVR it lets go
 cleanly. It talks to SteamVR on its own thread, so OSC to VRChat is never held up. Works with any
 SteamVR headset (Index, Vive, Quest via Link or Virtual Desktop, Pico, ...) on Windows or Linux.
+
+## Discord
+
+Turn on **Settings → Discord** and, with the Discord desktop app open, your profile shows
+*Playing KittyTooth* with your heart rate (for example *❤️ 82 bpm*, *Zone 2 · Polar H10*), how long
+KittyTooth has been open, and a *Get KittyTooth* button linking here. Zone, sensor name and the
+button can each be turned off. It updates about every 10 seconds (Discord's limit) and clears when
+you quit. KittyTooth talks only to the Discord app on your PC; it never logs in to Discord.
 
 ## FAQ
 

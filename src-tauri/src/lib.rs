@@ -89,6 +89,8 @@ pub fn run() {
                 state.quitting.store(true, Ordering::SeqCst);
                 // Removes the in-headset overlay before the engine goes.
                 state.steamvr.shutdown();
+                // Clears the Discord presence.
+                state.discord.shutdown();
                 let engine = state.engine.clone();
                 // Sends Connected=false to every OSC target before quitting.
                 tauri::async_runtime::block_on(engine.shutdown());
@@ -153,9 +155,13 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // Optional SteamVR overlay + haptics on its own thread; it only reads engine channels.
     let steamvr = kittytooth_core::steamvr::spawn(&engine);
     let steamvr_status = steamvr.subscribe();
+    // Optional Discord Rich Presence, also on its own thread.
+    let discord = kittytooth_core::discord::spawn(&engine);
+    let discord_status = discord.subscribe();
     let state = AppState::new(
         engine.clone(),
         steamvr,
+        discord,
         store,
         logging,
         secrets,
@@ -168,6 +174,7 @@ fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     tray::create(&handle, &config)?;
     spawn_bridges(&handle, &engine);
     spawn_steamvr_bridge(&handle, steamvr_status);
+    spawn_status_bridge(&handle, "discord", discord_status);
     tray::spawn_updater(handle.clone(), engine.clone());
 
     // "Start minimized to tray" applies to every launch, including start-with-Windows
@@ -217,6 +224,21 @@ fn spawn_steamvr_bridge(
         while status.changed().await.is_ok() {
             let s = status.borrow_and_update().clone();
             let _ = a.emit("steamvr", &s);
+        }
+    });
+}
+
+/// Forwards a status channel to the UI as an event.
+fn spawn_status_bridge<T: serde::Serialize + Clone + Send + Sync + 'static>(
+    app: &tauri::AppHandle,
+    event: &'static str,
+    mut status: tokio::sync::watch::Receiver<T>,
+) {
+    let a = app.clone();
+    tauri::async_runtime::spawn(async move {
+        while status.changed().await.is_ok() {
+            let s = status.borrow_and_update().clone();
+            let _ = a.emit(event, &s);
         }
     });
 }

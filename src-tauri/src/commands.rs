@@ -1,6 +1,7 @@
 //! Tauri commands. Every command returns typed, human-readable errors (`UserError`).
 
 use kittytooth_core::config::{Config, ConfigStore};
+use kittytooth_core::discord::DiscordStatus;
 use kittytooth_core::engine::{HistoryPoint, Snapshot};
 use kittytooth_core::history::{self, Session, SessionStore, SessionSummary};
 use kittytooth_core::osc::sender::OscLogEntry;
@@ -47,6 +48,7 @@ pub struct InitialState {
     pub devices: Vec<DiscoveredDevice>,
     pub info: AppInfo,
     pub steamvr: SteamVrStatus,
+    pub discord: DiscordStatus,
 }
 
 async fn app_info(state: &AppState) -> AppInfo {
@@ -80,6 +82,7 @@ pub async fn get_state(state: State<'_, AppState>) -> CmdResult<InitialState> {
         devices: state.engine.devices(),
         info: app_info(&state).await,
         steamvr: state.steamvr.status(),
+        discord: state.discord.status(),
     })
 }
 

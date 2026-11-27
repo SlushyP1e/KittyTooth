@@ -1,4 +1,4 @@
-import type { AlertConfig, Config, OscTarget, Snapshot, SteamVrConfig } from "./types";
+import type { AlertConfig, Config, DiscordConfig, OscTarget, Snapshot, SteamVrConfig } from "./types";
 
 export function defaultAlerts(): AlertConfig {
   return {
@@ -21,12 +21,18 @@ export function defaultSteamVr(): SteamVrConfig {
     overlay: true,
     attach: "left_wrist",
     size: "medium",
+    wrist_side: "outside",
+    wrist_offset: "normal",
     opacity: 90,
     fade: true,
     fade_angle: "normal",
     haptics: true,
     haptics_hand: "both",
   };
+}
+
+export function defaultDiscord(): DiscordConfig {
+  return { enabled: false, show_zone: true, show_device: true, button: true, app_id: "" };
 }
 
 // Mirrors the Rust defaults in crates/kittytooth-core/src/config.rs.
@@ -85,6 +91,7 @@ export function defaultConfig(): Config {
     },
     overlay: { enabled: true, port: 9123 },
     steamvr: defaultSteamVr(),
+    discord: defaultDiscord(),
     debug: { log_latency: false },
     updates: { auto_check: true },
   };

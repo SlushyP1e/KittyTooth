@@ -34,6 +34,8 @@ pub struct Config {
     pub ui: UiConfig,
     pub overlay: OverlayConfig,
     pub steamvr: SteamVrConfig,
+    /// Discord Rich Presence.
+    pub discord: DiscordConfig,
     pub debug: DebugConfig,
     pub updates: UpdateConfig,
 }
@@ -52,6 +54,7 @@ impl Default for Config {
             ui: UiConfig::default(),
             overlay: OverlayConfig::default(),
             steamvr: SteamVrConfig::default(),
+            discord: DiscordConfig::default(),
             debug: DebugConfig::default(),
             updates: UpdateConfig::default(),
         }
@@ -407,6 +410,10 @@ pub struct SteamVrConfig {
     pub attach: String,
     /// "small", "medium" or "large".
     pub size: String,
+    /// Watch face on the "outside" (back) or "inside" of the wrist.
+    pub wrist_side: String,
+    /// How far up the forearm the watch sits: "near" (by the hand), "normal" or "far".
+    pub wrist_offset: String,
     /// Overlay opacity in percent (20..=100).
     pub opacity: u32,
     /// Fade a wrist overlay out unless you look at it (alerts always show).
@@ -426,6 +433,8 @@ impl Default for SteamVrConfig {
             overlay: true,
             attach: "left_wrist".into(),
             size: "medium".into(),
+            wrist_side: "outside".into(),
+            wrist_offset: "normal".into(),
             opacity: 90,
             fade: true,
             fade_angle: "normal".into(),
@@ -444,6 +453,12 @@ impl SteamVrConfig {
         if !matches!(self.size.as_str(), "small" | "medium" | "large") {
             self.size = d.size;
         }
+        if !matches!(self.wrist_side.as_str(), "outside" | "inside") {
+            self.wrist_side = d.wrist_side.clone();
+        }
+        if !matches!(self.wrist_offset.as_str(), "near" | "normal" | "far") {
+            self.wrist_offset = d.wrist_offset.clone();
+        }
         if !matches!(self.fade_angle.as_str(), "narrow" | "normal" | "wide") {
             self.fade_angle = d.fade_angle;
         }
@@ -451,6 +466,44 @@ impl SteamVrConfig {
             self.haptics_hand = d.haptics_hand;
         }
         self.opacity = self.opacity.clamp(20, 100);
+    }
+}
+
+/// Optional Discord Rich Presence ("Playing KittyTooth" with your heart rate).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DiscordConfig {
+    pub enabled: bool,
+    /// Show the heart rate zone next to the BPM.
+    pub show_zone: bool,
+    /// Show the sensor's name.
+    pub show_device: bool,
+    /// A "Get KittyTooth" button linking to the GitHub page.
+    pub button: bool,
+    /// Overrides the built-in Discord application ID (digits only; empty = built-in).
+    pub app_id: String,
+}
+
+impl Default for DiscordConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            show_zone: true,
+            show_device: true,
+            button: true,
+            app_id: String::new(),
+        }
+    }
+}
+
+impl DiscordConfig {
+    pub fn sanitize(&mut self) {
+        self.app_id = self
+            .app_id
+            .chars()
+            .filter(char::is_ascii_digit)
+            .take(24)
+            .collect();
     }
 }
 
@@ -534,6 +587,7 @@ impl Config {
             self.overlay.port = OverlayConfig::default().port;
         }
         self.steamvr.sanitize();
+        self.discord.sanitize();
         self
     }
 }
@@ -930,6 +984,18 @@ mod tests {
     }
 
     #[test]
+    fn discord_defaults_and_sanitize() {
+        let c = Config::default();
+        assert!(!c.discord.enabled, "Rich Presence is opt-in");
+        assert!(c.discord.button && c.discord.show_zone);
+        let (c, _) =
+            ConfigStore::parse(r#"{"schema_version":3,"discord":{"enabled":true,"app_id":" 12-34 x"}}"#)
+                .unwrap();
+        assert!(c.discord.enabled);
+        assert_eq!(c.discord.app_id, "1234");
+    }
+
+    #[test]
     fn steamvr_defaults_and_sanitize() {
         let c = Config::default();
         assert!(!c.steamvr.enabled, "SteamVR is opt-in");
@@ -944,6 +1010,10 @@ mod tests {
         assert_eq!(c.steamvr.opacity, 20);
         assert_eq!(c.steamvr.haptics_hand, "both");
         assert_eq!(c.steamvr.fade_angle, "normal");
+        assert_eq!(
+            (c.steamvr.wrist_side.as_str(), c.steamvr.wrist_offset.as_str()),
+            ("outside", "normal")
+        );
         assert!(c.steamvr.fade, "fade defaults on");
         assert!(
             c.steamvr.overlay && c.steamvr.haptics,

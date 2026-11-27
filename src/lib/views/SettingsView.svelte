@@ -6,8 +6,18 @@
   import UpdatesSection from "../components/UpdatesSection.svelte";
   import { ACCENT_PRESETS, isCustomAccent } from "../theme";
   import StatusChip from "../components/StatusChip.svelte";
-  import { ZONE_NAMES, steamVrStatus } from "../format";
-  import type { Motion, Smoothing, Theme, VrAttach, VrFadeAngle, VrHand, VrSize } from "../types";
+  import { ZONE_NAMES, discordStatus, steamVrStatus } from "../format";
+  import type {
+    Motion,
+    Smoothing,
+    Theme,
+    VrAttach,
+    VrFadeAngle,
+    VrHand,
+    VrSize,
+    VrWristOffset,
+    VrWristSide,
+  } from "../types";
 
   const c = $derived(app.config);
   const s = $derived(app.snapshot);
@@ -15,6 +25,8 @@
   const a = $derived(c.alerts);
   const vr = $derived(c.steamvr);
   const vrStatus = $derived(steamVrStatus(app.steamvr));
+  const dc = $derived(c.discord);
+  const dcStatus = $derived(discordStatus(app.discord));
   const OPACITY_OPTIONS = [40, 60, 80, 90, 100].map((v) => ({ value: String(v), label: `${v}%` }));
   let confirmReset = $state(false);
 
@@ -370,7 +382,7 @@
         <div class="srow">
           <div class="stext">
             <span class="slabel">Position</span>
-            <p class="shelp">On a controller like a watch, or always in view.</p>
+            <p class="shelp">On your wrist like a watch, or always in view.</p>
           </div>
           <div class="sctrl">
             <Choice
@@ -385,6 +397,43 @@
             />
           </div>
         </div>
+        {#if vr.attach !== "hud"}
+          <div class="srow">
+            <div class="stext">
+              <span class="slabel">Watch face</span>
+              <p class="shelp">On the back of your wrist like a watch, or on the inside.</p>
+            </div>
+            <div class="sctrl">
+              <Choice
+                label="Watch face"
+                value={vr.wrist_side}
+                options={[
+                  { value: "outside", label: "outside" },
+                  { value: "inside", label: "inside" },
+                ]}
+                onchange={(v: VrWristSide) => app.updateConfig((cfg) => (cfg.steamvr.wrist_side = v))}
+              />
+            </div>
+          </div>
+          <div class="srow">
+            <div class="stext">
+              <span class="slabel">Watch position</span>
+              <p class="shelp">How far up your arm it sits, from by your hand to further up the forearm.</p>
+            </div>
+            <div class="sctrl">
+              <Choice
+                label="Watch position"
+                value={vr.wrist_offset}
+                options={[
+                  { value: "near", label: "near hand" },
+                  { value: "normal", label: "wrist" },
+                  { value: "far", label: "forearm" },
+                ]}
+                onchange={(v: VrWristOffset) => app.updateConfig((cfg) => (cfg.steamvr.wrist_offset = v))}
+              />
+            </div>
+          </div>
+        {/if}
         <div class="srow">
           <div class="stext"><span class="slabel">Size</span></div>
           <div class="sctrl">
@@ -457,6 +506,59 @@
                 { value: "both", label: "both" },
               ]}
               onchange={(v: VrHand) => app.updateConfig((cfg) => (cfg.steamvr.haptics_hand = v))}
+            />
+          </div>
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="section">
+    <h2 class="section-label">Discord <span class="spacer"></span><StatusChip status={dcStatus} /></h2>
+    <div class="hairlist">
+      <Toggle
+        label="Show on Discord"
+        hint="Rich Presence: your profile shows “Playing KittyTooth” with your heart rate, how long it's been open and a link to KittyTooth. Needs the Discord desktop app."
+        checked={dc.enabled}
+        onchange={(v) => app.updateConfig((cfg) => (cfg.discord.enabled = v))}
+      />
+      {#if dc.enabled}
+        <div class="srow">
+          <div class="stext">
+            <span class="slabel">Status</span>
+            <p class="shelp" role="status" aria-live="polite">{dcStatus.help}</p>
+          </div>
+        </div>
+        <Toggle
+          label="Show heart rate zone"
+          checked={dc.show_zone}
+          onchange={(v) => app.updateConfig((cfg) => (cfg.discord.show_zone = v))}
+        />
+        <Toggle
+          label="Show sensor name"
+          checked={dc.show_device}
+          onchange={(v) => app.updateConfig((cfg) => (cfg.discord.show_device = v))}
+        />
+        <Toggle
+          label="GitHub button"
+          hint="A “Get KittyTooth” button others can click."
+          checked={dc.button}
+          onchange={(v) => app.updateConfig((cfg) => (cfg.discord.button = v))}
+        />
+        <div class="srow">
+          <div class="stext">
+            <label class="slabel" for="discord-app-id">Application ID</label>
+            <p class="shelp">Optional. Leave empty to use KittyTooth's own.</p>
+          </div>
+          <div class="sctrl">
+            <input
+              id="discord-app-id"
+              type="text"
+              inputmode="numeric"
+              placeholder="built-in"
+              value={dc.app_id}
+              onchange={(e) =>
+                app.updateConfig((cfg) => (cfg.discord.app_id = e.currentTarget.value.replace(/\D/g, "").slice(0, 24)))}
             />
           </div>
         </div>

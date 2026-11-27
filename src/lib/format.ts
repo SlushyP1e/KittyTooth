@@ -8,6 +8,7 @@ import type {
   Snapshot,
   SourceKind,
   SteamVrStatus,
+  DiscordStatus,
 } from "./types";
 
 export const SOURCE_ORDER: SourceKind[] = ["ble", "ant", "pulsoid", "hyperate", "osc", "demo"];
@@ -126,6 +127,35 @@ export function steamVrStatus(s: SteamVrStatus): StatusView & { help: string } {
         label: "Can't connect",
         tone: "error",
         help: `${s.message ?? "SteamVR didn't accept the connection."} KittyTooth keeps trying.`,
+      };
+  }
+}
+
+export function discordStatus(s: DiscordStatus): StatusView & { help: string } {
+  switch (s.state) {
+    case "off":
+      return { label: "Off", tone: "off", help: "Turn it on to show your heart rate on your Discord profile." };
+    case "no_app_id":
+      return {
+        label: "Needs an app ID",
+        tone: "warn",
+        help: "Paste a Discord application ID below (Discord Developer Portal, New Application, copy the Application ID).",
+      };
+    case "not_running":
+      return { label: "Discord not open", tone: "off", help: "Shows up by itself when the Discord desktop app is open." };
+    case "connected":
+      return s.message
+        ? { label: "Connected", tone: "warn", help: s.message }
+        : {
+            label: "Connected",
+            tone: "ok",
+            help: s.user ? `Showing on ${s.user}'s profile.` : "Showing on your Discord profile.",
+          };
+    case "error":
+      return {
+        label: "Can't connect",
+        tone: "error",
+        help: `${s.message ?? "Discord didn't accept the connection."} KittyTooth keeps trying.`,
       };
   }
 }
